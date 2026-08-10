@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SDM report: {{ run_id }}</title>
+<style>
+  /* Same field-guide palette as the wizard's ui/theme.py, keep in sync. */
+  :root {
+    --ink: #20261F;
+    --canvas: #F6F5F0;
+    --raised: #FFFFFF;
+    --forest: #2F5D50;
+    --forest-dark: #21453B;
+    --forest-tint: #E4EDE9;
+    --moss: #7C9082;
+    --moss-soft: #E4E7DF;
+    --clay: #B5622E;
+    --clay-soft: #F1DECE;
+    --border: #DAD6C9;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", -apple-system, sans-serif;
+    margin: 0;
+    color: var(--ink);
+    background: var(--canvas);
+    padding: 1.5em 18px 3em;
+    line-height: 1.5;
+  }
+  h1 {
+    color: var(--forest-dark);
+    font-size: 1.9em;
+    margin: 0 0 0.15em;
+  }
+  .meta {
+    color: var(--moss);
+    font-size: 0.9em;
+    padding-bottom: 0.9em;
+    margin-bottom: 1.6em;
+    border-bottom: 2px solid var(--forest);
+  }
+  .meta code { background: none; padding: 0; }
+  h2 {
+    color: var(--forest-dark);
+    font-size: 1.25em;
+    margin: 2em 0 0.7em;
+    padding-bottom: 0.3em;
+    border-bottom: 1px solid var(--border);
+  }
+  h3 { color: var(--forest-dark); font-size: 1.05em; margin: 1.2em 0 0.4em; }
+  h4 { color: var(--moss); font-size: 0.95em; margin: 1em 0 0.3em; }
+  code, pre {
+    font-family: Consolas, "Courier New", monospace;
+    background: var(--raised);
+    border: 1px solid var(--border);
+  }
+  code { padding: 1px 5px; border-radius: 3px; font-size: 0.92em; }
+  pre {
+    padding: 12px 14px;
+    border-radius: 5px;
+    overflow-x: auto;
+    font-size: 0.85em;
+  }
+  table {
+    border-collapse: collapse;
+    margin: 0.5em 0 1.2em;
+    background: var(--raised);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    overflow: hidden;
+    font-variant-numeric: tabular-nums;
+  }
+  th, td { border-bottom: 1px solid var(--border); padding: 6px 12px; text-align: right; }
+  th { background: var(--moss-soft); color: var(--forest-dark); text-align: left; font-weight: 600; }
+  td:first-child, th:first-child { text-align: left; }
+  tr:last-child td { border-bottom: none; }
+  /* Reusable side-by-side card grid: fills the row before wrapping, so
+     per-step (VIF) or per-algorithm (response curves) content reads as a
+     compact grid instead of one full-width block stacked all the way down
+     the page. */
+  .card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 14px;
+    margin: 0.5em 0 1.2em;
+  }
+  .card {
+    background: var(--raised);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 14px 12px;
+  }
+  .card h4 { margin: 0 0 8px; }
+  /* Fixed layout keeps columns inside the card, and overflow-wrap lets long
+     values (e.g. a feature_types list) wrap instead of spilling past the
+     card's right edge. */
+  .card table { margin: 0; width: 100%; border: none; border-radius: 0; table-layout: fixed; }
+  .card th, .card td { overflow-wrap: anywhere; }
+  .card th:first-child, .card td:first-child { width: 58%; }
+  /* Figures inside a card (response curves) fill the card width and never
+     spill past its edge. */
+  .card .fig { display: block; margin: 6px 0; padding: 4px; }
+  .card .fig img { max-width: 100%; height: auto; }
+  .fig {
+    display: inline-block;
+    margin: 6px 10px 6px 0;
+    vertical-align: top;
+    background: var(--raised);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px;
+  }
+  /* Standalone figures (output maps, projection maps, variable importance)
+     render large, capped near the source PNG resolution so they stay crisp. */
+  .fig img { max-width: 460px; display: block; border-radius: 3px; }
+  .caption { font-size: 0.85em; color: var(--moss); text-align: center; padding-top: 4px; }
+  .warn {
+    background: var(--clay-soft);
+    border-left: 4px solid var(--clay);
+    color: var(--ink);
+    padding: 8px 14px;
+    margin: 1em 0;
+    border-radius: 0 4px 4px 0;
+  }
+  /* Generalized interpretation notes: color-coded callouts by tone. */
+  .disclaimer { font-size: 0.85em; color: var(--moss); font-style: italic; margin: 0 0 1em; }
+  .notes { display: grid; gap: 10px; margin: 0.5em 0 1.5em; }
+  .note {
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--moss);
+    border-radius: 0 4px 4px 0;
+    padding: 8px 14px;
+    background: var(--raised);
+  }
+  .note-head { font-weight: 700; color: var(--forest-dark); margin-bottom: 2px; }
+  .note-caveat { font-size: 0.85em; color: var(--moss); margin-top: 4px; }
+  .note.good { border-left-color: var(--forest); }
+  .note.ok { border-left-color: var(--moss); }
+  .note.info { border-left-color: var(--border); }
+  .note.caution { border-left-color: var(--clay); background: var(--clay-soft); }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2em 0 1em; }
+</style>
+</head>
+<body>
+<h1>SDM report</h1>
+<p class="meta">Run <code>{{ run_id }}</code> &middot; Generated {{ generated_at }}</p>
+
+{% if interpretation %}
+<h2>Generalized interpretations</h2>
+<p class="disclaimer">These are automated, rule-of-thumb notes based on the numbers in this report. The thresholds are common conventions, not hard rules, and they do not replace ecological judgment.</p>
+<div class="notes">
+{% for n in interpretation %}
+<div class="note {{ n.tone }}">
+  <div class="note-head">{{ n.heading }}</div>
+  <div>{{ n.text }}</div>
+  {% if n.caveat %}<div class="note-caveat">{{ n.caveat }}</div>{% endif %}
+</div>
+{% endfor %}
+</div>
+{% endif %}
+
+<h2>1. Run configuration</h2>
+<pre>{{ config_json }}</pre>
+
+<h2>2. Model configuration</h2>
+<p style="font-size: 0.9em; color: var(--moss);">The exact hyperparameters each selected algorithm was built with. These are also written to <code>model_hyperparameters.json</code> in the output directory.</p>
+<div class="card-grid">
+{% for algo, params in model_config.items() %}
+<div class="card">
+  <h4>{{ algo }}</h4>
+  <table>
+    {% for k, v in params.items() %}<tr><td>{{ k }}</td><td>{{ v }}</td></tr>{% endfor %}
+  </table>
+</div>
+{% endfor %}
+</div>
+
+<h2>3. Data cleaning</h2>
+<p>Input rows: <b>{{ cleaning.n_input }}</b>. Kept: <b>{{ cleaning.n_output }}</b>.</p>
+{% if cleaning.dropped %}
+<table>
+  <tr><th>Rule</th><th>Dropped</th></tr>
+  {% for k, v in cleaning.dropped.items() %}<tr><td>{{ k }}</td><td>{{ v }}</td></tr>{% endfor %}
+</table>
+{% endif %}
+{% if thinning %}
+<p>Thinning kept {{ thinning.n_output }} of {{ thinning.n_input }} points (removed {{ thinning.n_removed }}).</p>
+{% endif %}
+
+<h2>4. Predictor selection (stepwise VIF)</h2>
+<p>Cutoff: <b>{{ vif.cutoff }}</b>. Retained: <b>{{ vif.retained | join(", ") }}</b>. Dropped: <b>{{ vif.dropped | join(", ") or "none" }}</b>.</p>
+<div class="card-grid">
+{% for step in vif.steps %}
+<div class="card">
+  <h4>Step {{ step.step }}{% if step.dropped %}: dropped <code>{{ step.dropped }}</code>{% else %}: done{% endif %}</h4>
+  <table>
+    <tr><th>Feature</th><th>VIF</th></tr>
+    {% for f, v in step.vifs.items() %}<tr><td>{{ f }}</td><td>{{ "%.2f"|format(v) }}</td></tr>{% endfor %}
+  </table>
+</div>
+{% endfor %}
+</div>
+
+{% if background %}
+<h2>5. Background points</h2>
+<p>Method: <b>{{ background.method }}</b>. Drawn: <b>{{ background.n_drawn }}</b>{% if background.buffer_distance %} · buffer: {{ "%.0f"|format(background.buffer_distance) }} m{% endif %}.</p>
+{% endif %}
+
+<h2>6. Cross-validation</h2>
+<p>Method: <b>{{ split.method }}</b>{% if split.plan %} · block size: {{ "%.2f"|format(split.plan.block_size) }} ({{ split.plan.source }}){% endif %}. Folds used: {{ split.n_folds }}.</p>
+
+<h2>7. Model performance</h2>
+<table>
+  <tr><th>Algorithm</th><th>AUC (mean ± SD)</th><th>TSS (mean ± SD)</th><th>Boyce (mean ± SD)</th><th>Replicates</th></tr>
+  {% for row in metrics_summary %}
+  <tr>
+    <td>{{ row.algorithm }}</td>
+    <td>{{ "%.3f"|format(row.auc_mean) }} ± {{ "%.3f"|format(row.auc_sd) }}</td>
+    <td>{{ "%.3f"|format(row.tss_mean) }} ± {{ "%.3f"|format(row.tss_sd) }}</td>
+    <td>{{ "%.3f"|format(row.boyce_mean) }} ± {{ "%.3f"|format(row.boyce_sd) }}</td>
+    <td>{{ row.n_replicates }}</td>
+  </tr>
+  {% endfor %}
+</table>
+
+{% if failed_runs %}
+<div class="warn"><b>Some runs failed:</b>
+<ul>{% for f in failed_runs %}<li>{{ f }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+
+{% if output_maps %}
+<h2>8. Output maps</h2>
+{% for m in output_maps %}
+<h3>{{ m.label }}</h3>
+<div class="fig"><img src="{{ m.continuous }}"><div class="caption">Continuous suitability</div></div>
+<div class="fig"><img src="{{ m.binary }}"><div class="caption">Binary (max-TSS)</div></div>
+{% if m.uncertainty %}<div class="fig"><img src="{{ m.uncertainty }}"><div class="caption">Across-model uncertainty (SD)</div></div>{% endif %}
+{% endfor %}
+{% endif %}
+
+{% if projection_maps %}
+<h2>9. Projection maps</h2>
+{% for m in projection_maps %}
+<div class="fig"><img src="{{ m.map }}"><div class="caption">{{ m.label }}</div></div>
+{% endfor %}
+{% endif %}
+
+<h2>10. Response curves</h2>
+<p style="font-size: 0.9em; color: var(--moss);">The <b>Ensemble</b> curve (if shown first below) is each algorithm's mean response blended with the same weights used for the raster ensemble. The bold black line is what the ensemble prediction actually reflects at that predictor's values.</p>
+<div class="card-grid">
+{% for algo, files in response_curves.items() %}
+<div class="card">
+  <h4>{{ algo }}</h4>
+  {% for f in files %}<div class="fig"><img src="{{ f.path }}"><div class="caption">{{ f.variable }}</div></div>{% endfor %}
+</div>
+{% endfor %}
+</div>
+
+<h2>11. Variable importance</h2>
+{% for algo, f in variable_importance.items() %}
+<div class="fig"><img src="{{ f }}"><div class="caption">{{ algo }}</div></div>
+{% endfor %}
+
+<h2>12. Outputs</h2>
+<ul>
+  {% for f in output_files %}<li><code>{{ f }}</code></li>{% endfor %}
+</ul>
+
+<hr>
+<p style="font-size: 0.8em; color: var(--moss);">Generated by SDM v{{ plugin_version }}.</p>
+</body>
+</html>

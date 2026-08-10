@@ -1,0 +1,18 @@
+# Runtime dependencies for the SDM plugin.
+# Install into QGIS's Python environment:
+#     pip install -r requirements.txt
+# QGIS 4.0 ships with numpy, scipy, matplotlib, and GDAL/rasterio bindings, but
+# the packages below are pinned explicitly to guarantee reproducible behaviour.
+
+numpy>=1.26
+pandas>=2.1
+scipy>=1.11
+rasterio>=1.3
+fiona>=1.9
+scikit-learn>=1.4
+matplotlib>=3.8
+jinja2>=3.1
+joblib>=1.3
+pygam>=0.9
+xgboost>=2.0
+elapid>=1.0.4

@@ -1,0 +1,20 @@
+[general]
+name=SDM
+qgisMinimumVersion=4.0
+description=Guided species distribution modeling with multiple algorithms, ensemble prediction, and evaluation.
+version=0.1.0
+author=SDM contributors
+email=jpaul.payopay@gmail.com
+
+about=A guided QGIS plugin for species distribution modeling (SDM). Supports presence-only and presence/absence data, custom raster predictors, stepwise VIF, spatial-block cross-validation, nine algorithms (LR, GAM, RF, GBM, XGB, SVM, MLP, MaxEnt, ENFA), ensemble prediction with uncertainty, MESS/MOP extrapolation flags, and an HTML report bundling all outputs.
+
+tracker=https://github.com/jp-payopay/bioclimPH/issues
+repository=https://github.com/jp-payopay/bioclimPH
+category=Analysis
+tags=species distribution modeling, sdm, maxent, ecology, biodiversity, ensemble
+homepage=https://github.com/jp-payopay/bioclimPH
+icon=icon.png
+experimental=True
+deprecated=False
+supportsQt6=True
+license=GPL-3.0-or-later
