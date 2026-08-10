@@ -1,3 +1,4 @@
+<img width="128" height="128" alt="icon" src="https://github.com/user-attachments/assets/0e2ae2f4-cffe-4584-bf3b-633e2c5621e7" />
 # SDM
 
 A guided QGIS 4 plugin for species distribution modeling.
