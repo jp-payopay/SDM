@@ -1,11 +1,4 @@
-<img width="128" height="128" alt="icon" src="https://github.com/user-attachments/assets/a136d00c-817b-40eb-9605-cbdf3c3a9b33" />
-
-# SDM
-
-A guided QGIS 4 plugin for species distribution modeling, walking you through
-data loading, cleaning, predictor selection, cross-validation, modeling,
-ensembling, and reporting — with a live map preview at every step and no
-blind final run.
+<img width="1400" height="350" alt="sdm_plugin_banner" src="https://github.com/user-attachments/assets/f94bc548-05dc-43bd-85e2-fd858d46349c" />
 
 ## Features
 
