@@ -89,16 +89,6 @@ Run tests:
 pytest tests/
 ```
 
-Build a clean release zip (excludes tests, dev/example data, and caches —
-see `scripts/build_zip.py` for the exact include list):
-
-```
-python scripts/build_zip.py
-```
-
-This writes `dist/sdm_plugin.zip`, ready to upload to the QGIS plugin
-repository or attach to a GitHub release.
-
 ## License
 
 GPLv3-or-later. See [LICENSE](LICENSE).
