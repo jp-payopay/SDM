@@ -135,9 +135,25 @@ class DependencyInstallDialog(QDialog):
             self._thread = None
             self._worker = None
 
+    def is_installing(self) -> bool:
+        """True while a pip install is actively running in the background —
+        including after the dialog itself has been closed via the X button,
+        since closeEvent() deliberately lets the install continue rather than
+        freezing QGIS. Checked by plugin.py before opening a second dialog,
+        so a second click of the toolbar action reuses this one instead of
+        starting a second concurrent `pip install` of the same packages."""
+        return self._thread is not None and self._thread.isRunning()
+
     def closeEvent(self, event) -> None:
-        # Let a running install finish rather than killing pip mid-write.
-        if self._thread is not None:
-            self._thread.quit()
-            self._thread.wait()
+        # Deliberately does NOT quit()/wait() on a running install thread.
+        # _PipInstallWorker.run() blocks synchronously iterating pip's
+        # stdout — it has no event loop to process quit(), so wait() would
+        # block this (GUI) thread until pip itself exits, freezing all of
+        # QGIS, not just this dialog, for however long pip takes (minutes,
+        # for something like xgboost). Instead, match what the Close button
+        # already does (reject(), which bypasses closeEvent() and just hides
+        # the dialog): let the install keep running in the background: the
+        # dialog isn't WA_DeleteOnClose, so it and its thread/worker survive
+        # hidden, and _on_finished/_on_failed still fire normally when pip
+        # completes.
         super().closeEvent(event)

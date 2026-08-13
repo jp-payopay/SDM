@@ -135,24 +135,21 @@ def show_spatial_block(
     px: np.ndarray,
     py: np.ndarray,
     fold_id: np.ndarray,
-    bounds: tuple[float, float, float, float],
-    block_size: float,
-    n_bx: int,
-    fold_of_block: dict[int, int],
+    plan,
     crs: str | None = None,
 ) -> None:
-    """Like show_fold_colors, but also draws the actual block partitioning as
-    fold-colored polygons underneath the colored points. A plain scatter of
-    colored dots looks identical for any CV method, so without the blocks a
-    spatial-block preview gives no visual evidence the folds are spatially
-    contiguous blocks rather than an arbitrary label.
+    """Like show_fold_colors, but also draws the actual block partitioning
+    (square or hexagon, per plan.shape) as fold-colored polygons underneath
+    the colored points. A plain scatter of colored dots looks identical for
+    any CV method, so without the blocks a spatial-block preview gives no
+    visual evidence the folds are spatially contiguous blocks rather than an
+    arbitrary label.
     """
     clear_stage(stage_name)
     group = _stage_group(stage_name)
     crs_str = crs or "EPSG:4326"
 
-    minx, miny, _maxx, _maxy = bounds
-    blocks = block_fold_layer(minx, miny, block_size, n_bx, fold_of_block, crs_str, name="block_folds")
+    blocks = block_fold_layer(plan, crs_str, name="block_folds")
     _add_to_group(group, blocks)
 
     n = len(px)

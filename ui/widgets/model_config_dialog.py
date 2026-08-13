@@ -6,6 +6,8 @@ import json
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
+    QComboBox,
     QDialog,
     QFileDialog,
     QHBoxLayout,
@@ -23,6 +25,24 @@ from ..theme import APP_QSS
 # arguments), shown but never editable.
 _NOTE_SUFFIX = "_note"
 
+# Hyperparameters with a small set of valid string choices — shown as a
+# dropdown instead of free text so a typo can't produce an invalid/nonexistent
+# argument.
+_CHOICES: dict[str, list[str]] = {
+    "kernel": ["linear", "poly", "rbf", "sigmoid"],
+    "gamma": ["scale", "auto"],
+    "max_features": ["sqrt", "log2", "None"],
+}
+# kernel only ever accepts these four exact strings, so its dropdown is
+# locked; gamma and max_features also legitimately accept a number (a float
+# gamma, or an int/float max_features), so theirs stays editable.
+_STRICT_CHOICES = {"kernel"}
+
+# MaxEnt's feature_types isn't a single value like the params above — it's a
+# combination of these classes — so it gets its own checkbox popup (see
+# _FeatureTypesDialog) rather than a dropdown.
+_FEATURE_CLASSES = ["linear", "quadratic", "product", "hinge", "threshold"]
+
 
 def _coerce(text: str):
     """Turn an edited cell back into a real Python value. Numbers, lists,
@@ -39,13 +59,85 @@ def _coerce(text: str):
 
 class _ValueColumnDelegate(QStyledItemDelegate):
     """Lets only the Value column (column 1) of parameter rows open an editor,
-    so parameter names and the algorithm header rows stay read-only.
+    so parameter names and the algorithm header rows stay read-only. Rows
+    whose parameter name has a known fixed set of choices (_CHOICES) get an
+    editable dropdown instead of a plain text box, so a mistyped value can't
+    produce an invalid/nonexistent argument. feature_types (MaxEnt) opens its
+    own checkbox popup instead (see ModelConfigDialog._on_item_double_clicked),
+    so it's excluded from the normal in-place editor entirely.
     """
 
     def createEditor(self, parent, option, index):
         if index.column() != 1 or not index.parent().isValid():
             return None
+        key = index.sibling(index.row(), 0).data(Qt.ItemDataRole.UserRole)
+        if key == "feature_types":
+            return None
+        if key in _CHOICES:
+            combo = QComboBox(parent)
+            combo.setEditable(key not in _STRICT_CHOICES)
+            combo.addItems(_CHOICES[key])
+            return combo
         return super().createEditor(parent, option, index)
+
+    def setEditorData(self, editor, index):
+        if isinstance(editor, QComboBox):
+            text = str(index.data(Qt.ItemDataRole.EditRole))
+            found = editor.findText(text)
+            if found >= 0:
+                editor.setCurrentIndex(found)
+            else:
+                editor.setEditText(text)
+            return
+        super().setEditorData(editor, index)
+
+    def setModelData(self, editor, model, index):
+        if isinstance(editor, QComboBox):
+            model.setData(index, editor.currentText(), Qt.ItemDataRole.EditRole)
+            return
+        super().setModelData(editor, model, index)
+
+
+class _FeatureTypesDialog(QDialog):
+    """Popup editor for MaxEnt's feature_types. Unlike every other
+    hyperparameter, this one is a combination of classes rather than a single
+    value, so it doesn't fit the tree's normal single-editor pattern —
+    opened directly from ModelConfigDialog on double-click instead.
+    """
+
+    def __init__(self, checked: set[str], parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("MaxEnt feature types")
+        self.setStyleSheet(APP_QSS)
+        layout = QVBoxLayout(self)
+        info = QLabel(
+            "Choose which feature classes MaxEnt fits. Leave all unchecked to "
+            "restore automatic selection based on the presence count."
+        )
+        info.setWordWrap(True)
+        layout.addWidget(info)
+        self._boxes: dict[str, QCheckBox] = {}
+        for name in _FEATURE_CLASSES:
+            box = QCheckBox(name)
+            box.setChecked(name in checked)
+            layout.addWidget(box)
+            self._boxes[name] = box
+
+        btn_row = QHBoxLayout()
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        ok_btn = QPushButton("OK")
+        ok_btn.setProperty("cls", "primary")
+        ok_btn.clicked.connect(self.accept)
+        btn_row.addStretch()
+        btn_row.addWidget(cancel_btn)
+        btn_row.addWidget(ok_btn)
+        layout.addLayout(btn_row)
+
+    @property
+    def selected(self) -> list[str] | None:
+        chosen = [name for name in _FEATURE_CLASSES if self._boxes[name].isChecked()]
+        return chosen or None
 
 
 class ModelConfigDialog(QDialog):
@@ -112,6 +204,7 @@ class ModelConfigDialog(QDialog):
                     child.setFlags(child.flags() | Qt.ItemFlag.ItemIsEditable)
             self.tree.addTopLevelItem(top)
             top.setExpanded(True)
+        self.tree.itemDoubleClicked.connect(self._on_item_double_clicked)
         layout.addWidget(self.tree)
 
         btn_row = QHBoxLayout()
@@ -127,6 +220,17 @@ class ModelConfigDialog(QDialog):
         btn_row.addWidget(cancel_btn)
         btn_row.addWidget(apply_btn)
         layout.addLayout(btn_row)
+
+    def _on_item_double_clicked(self, item: QTreeWidgetItem, column: int) -> None:
+        """feature_types has no in-place editor (see _ValueColumnDelegate) —
+        double-clicking its Value cell opens the checkbox popup instead."""
+        if column != 1 or item.data(0, Qt.ItemDataRole.UserRole) != "feature_types":
+            return
+        current = _coerce(item.text(1))
+        checked = set(current) if isinstance(current, (list, tuple)) else set()
+        dlg = _FeatureTypesDialog(checked, parent=self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            item.setText(1, str(dlg.selected))
 
     def _collect(self) -> dict[str, dict]:
         """Read the current tree contents back into an algorithm-to-parameters

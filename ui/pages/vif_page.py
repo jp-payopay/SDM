@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 from qgis.PyQt.QtWidgets import (
+    QCheckBox,
     QDoubleSpinBox,
     QFormLayout,
     QLabel,
@@ -23,8 +24,12 @@ class VIFPage(StagePageMixin, QWizardPage):
         self.wizard_ref = wizard
         self.setTitle("Predictor selection (stepwise VIF)")
         self.setSubTitle(
-            "Iteratively drop the predictor with the highest VIF until all remaining "
-            "predictors are below the cutoff. Each step is logged to the report."
+            "VIF (Variance Inflation Factor) measures multicollinearity — how much "
+            "one predictor's information overlaps with the others. This step "
+            "iteratively drops the predictor with the highest VIF until all "
+            "remaining predictors are below the cutoff, so models aren't fed "
+            "redundant, highly correlated variables. Each step is logged to the "
+            "report."
         )
         self.cutoff = QDoubleSpinBox()
         self.cutoff.setRange(1.5, 100.0)
@@ -32,8 +37,12 @@ class VIFPage(StagePageMixin, QWizardPage):
         self.cutoff.setSingleStep(0.5)
         self.cutoff.setValue(10.0)
 
+        self.keep_all = QCheckBox("Keep all predictors (skip multicollinearity check)")
+        self.keep_all.setChecked(False)
+
         form = QFormLayout()
         form.addRow(QLabel("VIF cutoff:"), self.cutoff)
+        form.addRow(QLabel(""), self.keep_all)
 
         self.run_btn = QPushButton("Run VIF")
         self.run_btn.setProperty("cls", "primary")
@@ -53,7 +62,10 @@ class VIFPage(StagePageMixin, QWizardPage):
         layout.addLayout(form)
         layout.addWidget(wrapped_label(
             "Default is 10 (a common threshold in ecological modelling). "
-            "Lowering to 5 gives a stricter, more decorrelated set."
+            "Lowering to 5 gives a stricter, more decorrelated set. Checking "
+            "'Keep all predictors' bypasses this step entirely — useful if "
+            "you've already handled multicollinearity yourself, or want every "
+            "variable available regardless of overlap."
         ))
         layout.addWidget(self.run_btn)
         layout.addWidget(self.busy_label)
@@ -65,11 +77,20 @@ class VIFPage(StagePageMixin, QWizardPage):
         self._stage_ok = False
         self._last_snapshot: str | None = None
         self.cutoff.valueChanged.connect(self.completeChanged)
+        self.keep_all.toggled.connect(self.completeChanged)
+        self.keep_all.toggled.connect(self._update_field_state)
+        self._update_field_state()
+
+    def _update_field_state(self) -> None:
+        checked = self.keep_all.isChecked()
+        self.cutoff.setEnabled(not checked)
+        self.run_btn.setText("Keep All Predictors" if checked else "Run VIF")
 
     def _snapshot(self) -> str:
         wizard = self.wizard_ref
         return snapshot_key(
             self.cutoff.value(),
+            self.keep_all.isChecked(),
             wizard.session.stage_hashes.get("cleaning"),
             wizard.session.stage_hashes.get("background"),
         )
@@ -125,10 +146,16 @@ class VIFPage(StagePageMixin, QWizardPage):
             self.table.setItem(row, 2, QTableWidgetItem(f"{vif:.2f}" if np.isfinite(vif) else "n/a"))
             self.table.setItem(row, 3, QTableWidgetItem(action))
 
-        self.summary_label.setText(
-            f"Retained ({len(vif_report.retained)}): {', '.join(vif_report.retained) or 'none'}. "
-            f"Dropped ({len(vif_report.dropped)}): {', '.join(vif_report.dropped) or 'none'}."
-        )
+        if vif_report.skipped:
+            self.summary_label.setText(
+                f"Multicollinearity check skipped — all {len(vif_report.retained)} "
+                f"predictor(s) kept: {', '.join(vif_report.retained) or 'none'}."
+            )
+        else:
+            self.summary_label.setText(
+                f"Retained ({len(vif_report.retained)}): {', '.join(vif_report.retained) or 'none'}. "
+                f"Dropped ({len(vif_report.dropped)}): {', '.join(vif_report.dropped) or 'none'}."
+            )
 
         new_key = self._snapshot()
         old_key = wizard.session.stage_hashes.get("vif")
@@ -161,6 +188,7 @@ class VIFPage(StagePageMixin, QWizardPage):
 
     def save_to_config(self, cfg) -> None:
         cfg.vif.cutoff = float(self.cutoff.value())
+        cfg.vif.enabled = not self.keep_all.isChecked()
 
     def validatePage(self) -> bool:
         self.save_to_config(self.wizard_ref.config)

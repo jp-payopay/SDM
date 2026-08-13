@@ -1,5 +1,16 @@
 from __future__ import annotations
 
+from pathlib import Path
+
+# Bundled spin-box/combo-box arrow glyphs (see ui/resources/). Qt Style
+# Sheets' `url()` needs forward slashes even on Windows, hence `.as_posix()`
+# rather than the platform-native `str()`.
+_RESOURCES_DIR = Path(__file__).parent / "resources"
+_ICON_SPIN_UP = (_RESOURCES_DIR / "spin_up.png").as_posix()
+_ICON_SPIN_DOWN = (_RESOURCES_DIR / "spin_down.png").as_posix()
+_ICON_SPIN_UP_DISABLED = (_RESOURCES_DIR / "spin_up_disabled.png").as_posix()
+_ICON_SPIN_DOWN_DISABLED = (_RESOURCES_DIR / "spin_down_disabled.png").as_posix()
+
 # Design tokens for the plugin's visual identity — a field-guide/topographic
 # palette (forest green primary, clay as a rare secondary accent, warm paper
 # ground) grounded in the subject (species distribution modeling), not a
@@ -102,6 +113,91 @@ QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus, QPlainTe
 QLineEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled, QComboBox:disabled {{
     color: {DISABLED_TEXT};
     background: {CANVAS};
+}}
+/* Cell editors popped up inside a tree/table (e.g. the model configuration
+   dialog's Value column) inherit the padding above, which needs more row
+   height than the view's compact rows provide — the editor then renders
+   vertically squeezed, clipping the text. Give editors nested in an item
+   view less padding so they fit the row instead. */
+QAbstractItemView QLineEdit, QAbstractItemView QComboBox {{
+    padding: 1px 4px;
+}}
+/* QComboBox's dropdown list is a separate top-level popup, not a descendant
+   of the combo box itself in the widget tree — the QWidget {{ color: ... }}
+   rule above does not reach it, so without an explicit rule here it falls
+   back to whatever palette the popup happens to inherit, which can render
+   as unreadable (e.g. black text on a black/unstyled background) once the
+   rest of the app's palette has been overridden. Style it explicitly. */
+QComboBox QAbstractItemView {{
+    background: {RAISED};
+    color: {INK};
+    border: 1px solid {BORDER};
+    selection-background-color: {FOREST_TINT};
+    selection-color: {FOREST_DARK};
+    outline: none;
+}}
+QComboBox::drop-down {{
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 18px;
+    border-left: 1px solid {BORDER};
+}}
+QComboBox::down-arrow {{
+    image: url({_ICON_SPIN_DOWN});
+    width: 10px;
+    height: 6px;
+}}
+QComboBox::down-arrow:disabled {{
+    image: url({_ICON_SPIN_DOWN_DISABLED});
+}}
+/* The native up/down spin buttons render inconsistently across platform
+   styles when only colors/borders are customized (observed as solid-color
+   boxes instead of triangles on Windows) — using real bundled glyphs via
+   `image:` renders identically regardless of the underlying style engine. */
+QSpinBox::up-button, QDoubleSpinBox::up-button {{
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+    width: 16px;
+    border-left: 1px solid {BORDER};
+    border-bottom: 1px solid {BORDER};
+    border-top-right-radius: 4px;
+    background: {RAISED};
+}}
+QSpinBox::down-button, QDoubleSpinBox::down-button {{
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
+    width: 16px;
+    border-left: 1px solid {BORDER};
+    border-bottom-right-radius: 4px;
+    background: {RAISED};
+}}
+QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
+QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {{
+    background: {MOSS_SOFT};
+}}
+QSpinBox::up-button:pressed, QDoubleSpinBox::up-button:pressed,
+QSpinBox::down-button:pressed, QDoubleSpinBox::down-button:pressed {{
+    background: {FOREST_TINT};
+}}
+QSpinBox::up-button:disabled, QDoubleSpinBox::up-button:disabled,
+QSpinBox::down-button:disabled, QDoubleSpinBox::down-button:disabled {{
+    background: {CANVAS};
+}}
+QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{
+    image: url({_ICON_SPIN_UP});
+    width: 10px;
+    height: 6px;
+}}
+QSpinBox::up-arrow:disabled, QDoubleSpinBox::up-arrow:disabled {{
+    image: url({_ICON_SPIN_UP_DISABLED});
+}}
+QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{
+    image: url({_ICON_SPIN_DOWN});
+    width: 10px;
+    height: 6px;
+}}
+QSpinBox::down-arrow:disabled, QDoubleSpinBox::down-arrow:disabled {{
+    image: url({_ICON_SPIN_DOWN_DISABLED});
 }}
 QCheckBox, QRadioButton {{
     spacing: 8px;

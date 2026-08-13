@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import time
 import traceback
+from datetime import datetime
 
 from qgis.PyQt.QtCore import QObject, QThread, pyqtSignal
 from qgis.PyQt.QtWidgets import (
@@ -14,7 +16,7 @@ from qgis.PyQt.QtWidgets import (
 )
 
 from ...core.config import SDMConfig
-from ...core.pipeline import Pipeline
+from ...core.pipeline import Pipeline, format_duration
 from ..page_utils import wrap_scrollable
 from ..qgis_layers import load_run_outputs
 
@@ -49,12 +51,13 @@ class RunPage(QWizardPage):
         self.setTitle("Running the pipeline")
         self.setSubTitle(
             "Click 'Start' to begin. Loading, cleaning, background sampling, and VIF "
-            "selection reuse the results already previewed on earlier pages, so only "
-            "modeling, ensembling, and reporting run fresh here."
+            "(multicollinearity) selection reuse the results already previewed on "
+            "earlier pages, so only modeling, ensembling, and reporting run fresh here."
         )
         self.result = None
         self._thread: QThread | None = None
         self._worker: _Worker | None = None
+        self._start_time: float | None = None
         # Snapshot of wizard.config as of the last successful run. Compared
         # against the *current* config in isComplete() — this is the
         # authoritative staleness check (not just a UI nicety): unlike the
@@ -70,6 +73,7 @@ class RunPage(QWizardPage):
         self.pbar = QProgressBar()
         self.pbar.setRange(0, 100)
         self.stage_lbl = QLabel("Idle.")
+        self.runtime_lbl = QLabel("")
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
 
@@ -77,12 +81,29 @@ class RunPage(QWizardPage):
         layout.addWidget(self.start_btn)
         layout.addWidget(self.stage_lbl)
         layout.addWidget(self.pbar)
+        layout.addWidget(self.runtime_lbl)
         layout.addWidget(QLabel("Log:"))
         layout.addWidget(self.log)
         wrap_scrollable(self, layout)
 
+    def initializePage(self) -> None:
+        # Re-enable Start whenever the page becomes current and the last
+        # result is stale (isComplete()==False) — this is the only thing
+        # that unblocks the button for settings pages (Algorithms/Ensemble/
+        # Output/Split) that don't go through wizard.invalidate_from(), so
+        # without this a completed run followed by any such change leaves
+        # both Next (correctly) and Start disabled with no way to recover
+        # short of restarting the wizard. Guarded by is_running() so this
+        # can't re-enable Start while a run is still actually in flight.
+        if not self.isComplete() and not self.is_running():
+            self.start_btn.setEnabled(True)
+
     def _start(self) -> None:
+        if self.is_running():
+            return
         self.start_btn.setEnabled(False)
+        self.runtime_lbl.setText("")
+        self._start_time = time.monotonic()
         self._append("Starting pipeline…")
         self._thread = QThread(self)
         self._worker = _Worker(self.wizard_ref.config, session=self.wizard_ref.session)
@@ -104,7 +125,12 @@ class RunPage(QWizardPage):
     def _on_finished(self, result) -> None:
         self.result = result
         self._last_run_snapshot = self._snapshot()
-        self._append("Pipeline complete.")
+        # result.duration_seconds is core's own measurement (Pipeline._t0),
+        # the same number the HTML report shows — used here instead of timing
+        # independently in the UI so the two never drift apart.
+        runtime = format_duration(result.duration_seconds)
+        self.runtime_lbl.setText(f"Total runtime: {runtime}")
+        self._append(f"Pipeline complete. Total runtime: {runtime}.")
         load_run_outputs(self.wizard_ref.iface, result)
         self.wizard_ref.run_completed.emit(result)
         self._cleanup()
@@ -112,7 +138,14 @@ class RunPage(QWizardPage):
         self.wizard_ref.next()
 
     def _on_failed(self, err: str) -> None:
-        self._append("FAILED:\n" + err)
+        # No RunResult on failure, so this is the UI's own wall-clock timer
+        # (started in _start()) rather than core's duration_seconds.
+        if self._start_time is not None:
+            runtime = format_duration(time.monotonic() - self._start_time)
+            self.runtime_lbl.setText(f"Failed after: {runtime}")
+            self._append(f"FAILED after {runtime}:\n" + err)
+        else:
+            self._append("FAILED:\n" + err)
         self._cleanup()
         self.start_btn.setEnabled(True)
 
@@ -124,7 +157,8 @@ class RunPage(QWizardPage):
             self._worker = None
 
     def _append(self, msg: str) -> None:
-        self.log.appendPlainText(msg)
+        stamp = datetime.now().strftime("%H:%M:%S")
+        self.log.appendPlainText(f"[{stamp}] {msg}")
 
     def isComplete(self) -> bool:
         return (
@@ -140,8 +174,10 @@ class RunPage(QWizardPage):
         visible until the user notices Next is greyed out."""
         self.result = None
         self._last_run_snapshot = None
+        self._start_time = None
         self.pbar.setValue(0)
         self.stage_lbl.setText("Idle.")
+        self.runtime_lbl.setText("")
         self.log.clear()
         self.start_btn.setEnabled(True)
         self.completeChanged.emit()

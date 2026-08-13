@@ -30,8 +30,10 @@ class ProjectionPage(StagePageMixin, QWizardPage):
         self.setTitle("Projection stack (optional)")
         self.setSubTitle(
             "Optionally supply a second raster stack matching the same predictors "
-            "in the same order (e.g. future climate scenario). MESS and MOP layers "
-            "will flag extrapolation."
+            "in the same order (e.g. future climate scenario). MESS (Multivariate "
+            "Environmental Similarity Surface) and MOP (Mobility-Oriented Parity) "
+            "layers will flag extrapolation — places where the projection's "
+            "conditions fall outside what the model was actually trained on."
         )
         self.list = QListWidget()
         self.list.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
@@ -90,6 +92,11 @@ class ProjectionPage(StagePageMixin, QWizardPage):
 
     def _clear(self) -> None:
         self.list.clear()
+        # QListWidget.clear() resets the model internally rather than
+        # removing rows one at a time, so it doesn't fire rowsRemoved — the
+        # only signal wired to completeChanged above — leaving Next stuck
+        # disabled even though isComplete() would now correctly return True.
+        self.completeChanged.emit()
 
     def _paths(self) -> list[str]:
         return [self.list.item(i).text() for i in range(self.list.count())]

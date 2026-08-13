@@ -12,7 +12,8 @@ class EnsemblePage(QWizardPage):
         self.setTitle("Ensemble combination")
         self.setSubTitle(
             "Choose how per-algorithm predictions are combined into the ensemble. "
-            "An across-model SD (uncertainty) map is always produced."
+            "An across-model SD (Standard Deviation, i.e. uncertainty) map is "
+            "always produced."
         )
         self.mean = QRadioButton("Unweighted mean")
         self.wauc = QRadioButton("Weighted by AUC")
@@ -25,8 +26,10 @@ class EnsemblePage(QWizardPage):
         layout.addWidget(self.wtss)
         layout.addSpacing(20)
         layout.addWidget(wrapped_label(
-            "Weighted schemes emphasise better-performing algorithms. Metric weights "
-            "are the mean value across replicates for each algorithm."
+            "Weighted schemes emphasise better-performing algorithms. AUC (Area "
+            "Under the ROC Curve) and TSS (True Skill Statistic) are both accuracy "
+            "scores, higher is better; metric weights are the mean value across "
+            "replicates for each algorithm."
         ))
         layout.addStretch()
         wrap_scrollable(self, layout)

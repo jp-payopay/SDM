@@ -91,24 +91,24 @@ class EmbeddedPreviewCanvas(QWidget):
     def set_fold_colors(self, px: np.ndarray, py: np.ndarray, fold_id: np.ndarray, crs: str | None = None) -> None:
         self.set_points(px, py, labels=fold_id, crs=crs)
 
-    def set_block_polygons(
-        self,
-        bounds: tuple[float, float, float, float],
-        block_size: float,
-        n_bx: int,
-        fold_of_block: dict[int, int],
-        crs: str | None = None,
-    ) -> None:
-        """Draw the spatial-block CV partitioning as fold-colored polygons.
-        Call *after* set_fold_colors so the colored points stay on top and the
-        blocks read as the regions the points sit inside, not a layer hiding
-        the points they explain.
+    def set_block_polygons(self, plan, crs: str | None = None) -> None:
+        """Draw the spatial-block CV partitioning (square or hexagon, per
+        plan.shape) as fold-colored polygons. Call *after* set_fold_colors so
+        the colored points stay on top and the blocks read as the regions
+        the points sit inside, not a layer hiding the points they explain.
         """
         if crs:
             self._set_crs(crs)
-        minx, miny, _maxx, _maxy = bounds
-        layer = block_fold_layer(minx, miny, block_size, n_bx, fold_of_block, crs or "EPSG:4326")
+        layer = block_fold_layer(plan, crs or "EPSG:4326")
         self._replace_layer("grid", layer)
+
+    def clear_block_polygons(self) -> None:
+        """Remove the spatial-block polygons drawn by set_block_polygons, if
+        any. Callers must call this when previewing a non-spatial-block split
+        (random/k-fold) after a spatial-block preview — set_points() only
+        ever touches the "points" role, so without an explicit clear here the
+        old blocks silently keep rendering underneath the new points."""
+        self._replace_layer("grid", None)
 
     def set_raster_extent(self, stack: RasterStack) -> None:
         """Draw the raster stack's bounding extent as an outline, without

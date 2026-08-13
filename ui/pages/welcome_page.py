@@ -102,7 +102,8 @@ class WelcomePage(QWizardPage):
             ("Smart caching", "Going back and changing one earlier setting only "
                 "re-runs the steps actually downstream of it."),
             ("CRS-flexible distances", "Enter buffer and block sizes in km or m, and "
-                "SDM converts them to your raster's CRS automatically."),
+                "SDM converts them to your raster's CRS (Coordinate Reference "
+                "System) automatically."),
         ]
         for i, (title, body) in enumerate(highlights):
             highlight_grid.addLayout(_highlight(title, body), i // 2, i % 2)
@@ -123,8 +124,8 @@ class WelcomePage(QWizardPage):
         steps_layout = QVBoxLayout(steps_box)
         steps_layout.addWidget(wrapped_label(
             "1. Occurrence data 2. Predictor rasters 3. Cleaning\n"
-            "4. Background points 5. Predictor selection (VIF) "
-            "6. Cross-validation\n"
+            "4. Background points 5. Predictor selection (VIF — multicollinearity) "
+            "6. Cross-validation (CV)\n"
             "7. Algorithms 8. Projection stack (optional) "
             "9. Ensemble\n"
             "10. Output settings 11. Run 12. Done"

@@ -45,6 +45,27 @@ def load_occurrences(
     return OccurrenceData(x=x, y=y, presence=presence, crs=used_crs)
 
 
+def reproject_occurrences(data: OccurrenceData, target_crs: str) -> OccurrenceData:
+    """Reproject occurrence coordinates into `target_crs` (a predictor raster
+    stack's CRS). A no-op (returns `data` unchanged) if already in that CRS —
+    comparing the CRS *string* rather than resolving+comparing both, since an
+    exact string match means there is nothing to do, and callers that already
+    reprojected once (setting .crs to target_crs) shouldn't pay for or repeat
+    the transform on every subsequent call.
+    """
+    if data.crs == target_crs:
+        return data
+    from rasterio.warp import transform as warp_transform
+
+    xs, ys = warp_transform(data.crs, target_crs, data.x.tolist(), data.y.tolist())
+    return OccurrenceData(
+        x=np.asarray(xs, dtype=np.float64),
+        y=np.asarray(ys, dtype=np.float64),
+        presence=data.presence,
+        crs=target_crs,
+    )
+
+
 def _load_csv(
     path: Path, x_field: str, y_field: str, presence_field: str
 ) -> pd.DataFrame:

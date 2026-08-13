@@ -68,6 +68,19 @@ class RunResult:
     failed_runs: list[str] = field(default_factory=list)
     output_files: list[str] = field(default_factory=list)
     report_path: str | None = None
+    duration_seconds: float = 0.0
+
+
+def format_duration(seconds: float) -> str:
+    """Human-friendly elapsed-time string, e.g. "45s", "3m 12s", "1h 05m 12s"."""
+    total = max(0, int(round(seconds)))
+    h, rem = divmod(total, 3600)
+    m, s = divmod(rem, 60)
+    if h:
+        return f"{h}h {m:02d}m {s:02d}s"
+    if m:
+        return f"{m}m {s:02d}s"
+    return f"{s}s"
 
 
 class Pipeline:
@@ -81,6 +94,10 @@ class Pipeline:
         self._progress_cb = progress or (lambda *_: None)
         self._t0 = time.time()
         self._session = session
+        # First spatial-block plan seen during modeling, if cfg.split.method
+        # == "spatial_block" — surfaced in the report's CV section. See
+        # _run_one()'s call to make_folds().
+        self._captured_split_plan = None
 
     def run(self) -> RunResult:
         errors = self.cfg.validate()
@@ -247,6 +264,7 @@ class Pipeline:
                 nodata=255,
             )
             output_files += [str(cont_path), str(bin_path)]
+            output_files += [r.model_path for r in reps if r.model_path]
 
             algo_label = algorithm_long_name(algo)
             cont_map = plot_raster_map(
@@ -437,13 +455,10 @@ class Pipeline:
                 )
                 proj_preds = []
                 for rep in reps_data:
-                    if rep.error is not None or rep.model_path is None:
+                    if rep.error is not None or rep.model is None:
                         continue
-                    from .io.outputs import load_model
-
-                    model = load_model(rep.model_path)
                     proj_preds.append(
-                        predict_raster(model, proj_stack, kept_feature_idx=kept_idx)
+                        predict_raster(rep.model, proj_stack, kept_feature_idx=kept_idx)
                     )
                 if proj_preds:
                     mean_proj = np.nanmean(np.stack(proj_preds, axis=0), axis=0)
@@ -525,6 +540,12 @@ class Pipeline:
         ]
         save_json(out_dir / "metrics_per_replicate.json", per_replicate_json)
         output_files.append(str(out_dir / "metrics_per_replicate.json"))
+
+        # Measured here (rather than after report rendering) so the report
+        # itself can display the same number the caller ends up with on
+        # RunResult.duration_seconds — report writing itself is fast enough
+        # that the difference is negligible.
+        duration_seconds = time.time() - self._t0
 
         report_path = None
         if self.cfg.output.write_html_report:
@@ -611,6 +632,9 @@ class Pipeline:
                 out_dir / "report.html",
                 {
                     "run_id": Path(self.cfg.output.directory).name,
+                    "plugin_version": self.cfg.version,
+                    "duration_seconds": duration_seconds,
+                    "duration_formatted": format_duration(duration_seconds),
                     "interpretation": [n.as_dict() for n in interpretation],
                     "config_json": json.dumps(self.cfg.to_dict(), indent=2),
                     "config_dict": self.cfg.to_dict(),
@@ -633,7 +657,7 @@ class Pipeline:
                     "split": {
                         "method": self.cfg.split.method,
                         "n_folds": self.cfg.split.k,
-                        "plan": None,
+                        "plan": self._captured_split_plan,
                     },
                     "metrics_summary": metrics_summary,
                     "failed_runs": failed,
@@ -653,6 +677,7 @@ class Pipeline:
             failed_runs=failed,
             output_files=output_files,
             report_path=str(report_path) if report_path else None,
+            duration_seconds=duration_seconds,
         )
 
     # ----- helpers -----
@@ -715,8 +740,13 @@ class Pipeline:
 
         # Fold generation — always freshly generated per replicate (never
         # cached/reused from a wizard-page preview) so each replicate sees an
-        # independent split, which is the entire point of replicating.
+        # independent split, which is the entire point of replicating. Block
+        # size/shape are constant across replicates (only the block-to-fold
+        # shuffle differs), so the first one seen is representative enough
+        # to report — see self._captured_split_plan below.
         folds, _plan, _fold_id = make_folds(self.cfg, X_kept, y, px, py, stack, rep_rng)
+        if _plan is not None and self._captured_split_plan is None:
+            self._captured_split_plan = _plan
 
         # Pool held-out predictions across folds
         algo_overrides = self.cfg.modeling.hyperparameters.get(algo, {})

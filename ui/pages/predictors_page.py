@@ -28,8 +28,9 @@ class PredictorsPage(StagePageMixin, QWizardPage):
         self.wizard_ref = wizard
         self.setTitle("Predictor rasters")
         self.setSubTitle(
-            "Add one or more raster predictors. They must share the same CRS, extent, "
-            "resolution, and grid. Load and Validate will report a clear error otherwise."
+            "Add one or more raster predictors. They must share the same CRS "
+            "(Coordinate Reference System), extent, resolution, and grid. Load and "
+            "Validate will report a clear error otherwise."
         )
         self.list = QListWidget()
         self.list.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)

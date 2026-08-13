@@ -40,6 +40,7 @@ class SDMWizardPlugin:
         self.toolbar: QToolBar | None = None
         self.dock = None
         self._wizard = None
+        self._dep_dialog = None
 
     def initGui(self) -> None:
         icon_path = PLUGIN_DIR / "icon.png"
@@ -139,11 +140,32 @@ class SDMWizardPlugin:
     def _show_dependency_dialog(self, results: list[tuple[str, str, str]]) -> None:
         from .ui.widgets.dependency_dialog import DependencyInstallDialog
 
-        missing = [_PKG_MAP.get(n, n) for n, s, _ in results if s == "missing"]
-        dialog = DependencyInstallDialog(
-            self.iface.mainWindow(), _missing_deps_message(results), missing, _python_executable()
-        )
+        # Reuse a still-installing dialog rather than opening a second one:
+        # closing the dialog via the X button lets its background pip
+        # install keep running (see DependencyInstallDialog.closeEvent), so
+        # without this, clicking the toolbar action again before that
+        # install finishes would spawn a second concurrent `pip install` of
+        # the same packages against the same QGIS Python environment.
+        dialog = None
+        if self._dep_dialog is not None:
+            try:
+                if self._dep_dialog.is_installing():
+                    dialog = self._dep_dialog
+            except RuntimeError:
+                pass
+            if dialog is None:
+                self._dep_dialog = None
+
+        if dialog is None:
+            missing = [_PKG_MAP.get(n, n) for n, s, _ in results if s == "missing"]
+            dialog = DependencyInstallDialog(
+                self.iface.mainWindow(), _missing_deps_message(results), missing, _python_executable()
+            )
+            self._dep_dialog = dialog
+
         dialog.exec()
+        if not dialog.is_installing():
+            self._dep_dialog = None
         if not dialog.installed_ok:
             return
 

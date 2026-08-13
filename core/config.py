@@ -8,6 +8,7 @@ from typing import Literal
 DataMode = Literal["presence_only", "presence_absence"]
 BackgroundMethod = Literal["random", "buffered"]
 SplitMethod = Literal["random", "kfold", "spatial_block"]
+BlockShape = Literal["square", "hexagon"]
 EnsembleMethod = Literal["mean", "weighted_auc", "weighted_tss"]
 
 ALGORITHMS = ("lr", "gam", "rf", "gbm", "xgb", "svm", "mlp", "maxent", "enfa")
@@ -48,6 +49,10 @@ class BackgroundConfig:
 @dataclass
 class VIFConfig:
     cutoff: float = 10.0
+    # False skips stepwise elimination entirely and keeps every predictor —
+    # for users who want to handle multicollinearity themselves (or not at
+    # all), rather than an implicit "raise the cutoff very high" workaround.
+    enabled: bool = True
 
 
 @dataclass
@@ -59,6 +64,9 @@ class SplitConfig:
     # Always real-world meters (ignored when auto_block_size is True).
     # Converted to the raster's native CRS units in stages.make_folds.
     block_size: float = 0.0
+    # Tessellation for spatial_block CV. Both interpret block_size as the
+    # same ground area per block — see core/split/spatial_block.py.
+    block_shape: BlockShape = "square"
 
 
 @dataclass
@@ -98,7 +106,7 @@ class SDMConfig:
     ensemble: EnsembleConfig = field(default_factory=EnsembleConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
     random_seed: int = 42
-    version: str = "0.1.0"
+    version: str = "1.0.0"
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -123,7 +131,7 @@ class SDMConfig:
             ensemble=build(EnsembleConfig, data.get("ensemble")),
             output=build(OutputConfig, data.get("output")),
             random_seed=data.get("random_seed", 42),
-            version=data.get("version", "0.1.0"),
+            version=data.get("version", "1.0.0"),
         )
 
     @classmethod
@@ -146,6 +154,20 @@ class SDMConfig:
             errors.append("VIF cutoff must be greater than 1.")
         if self.split.k < 2:
             errors.append("k must be at least 2 for k-fold or spatial-block CV.")
+        if self.split.method == "random" and not (0.0 < self.split.test_size < 1.0):
+            errors.append("test_size must be between 0 and 1 (exclusive) for random hold-out.")
+        if (
+            self.split.method == "spatial_block"
+            and not self.split.auto_block_size
+            and self.split.block_size <= 0
+        ):
+            errors.append(
+                "Block size must be positive when auto block size is disabled "
+                "(a non-positive value would otherwise silently fall back to "
+                "auto-sizing instead of the value you intended)."
+            )
+        if self.split.block_shape not in ("square", "hexagon"):
+            errors.append(f"Unknown block_shape: {self.split.block_shape!r}")
         if self.modeling.replicates < 1:
             errors.append("Replicates must be >= 1.")
         unknown = set(self.modeling.algorithms) - set(ALGORITHMS)
@@ -153,6 +175,12 @@ class SDMConfig:
             errors.append(f"Unknown algorithms: {sorted(unknown)}")
         if not self.modeling.algorithms:
             errors.append("Select at least one algorithm.")
+        if self.data_mode == "presence_absence" and "enfa" in self.modeling.algorithms:
+            errors.append(
+                "ENFA is a presence-only method (it models presences against the "
+                "full sample as the 'available environment') and isn't meaningful "
+                "in presence/absence mode."
+            )
         if not self.output.directory:
             errors.append("Output directory is required.")
         return errors

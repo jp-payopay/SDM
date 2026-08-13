@@ -23,8 +23,9 @@ class CleaningPage(StagePageMixin, QWizardPage):
         self.wizard_ref = wizard
         self.setTitle("Cleaning options")
         self.setSubTitle(
-            "Automatic cleaning drops NaN, duplicate, (0, 0), out-of-extent, and "
-            "nodata-cell points. Spatial thinning keeps at most one point per raster pixel."
+            "Automatic cleaning drops NaN (Not a Number, i.e. missing coordinates), "
+            "duplicate, (0, 0), out-of-extent, and nodata-cell points. Spatial "
+            "thinning keeps at most one point per raster pixel."
         )
         self.auto_clean = QCheckBox("Apply automatic coordinate cleaning")
         self.auto_clean.setChecked(True)

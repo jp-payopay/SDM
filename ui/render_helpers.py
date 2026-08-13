@@ -17,7 +17,7 @@ from qgis.core import (
 )
 from qgis.PyQt.QtGui import QColor
 
-from .theme import INK
+from ..core.split.spatial_block import SpatialBlockPlan, block_polygon_corners
 
 # A small qualitative palette, reused for any categorized preview (folds,
 # kept/dropped predictors, presence/background, etc.) whether it ends up on
@@ -84,108 +84,39 @@ def categorized_renderer(
     return QgsCategorizedSymbolRenderer(field, categories)
 
 
-def grid_line_geometries(
-    minx: float,
-    miny: float,
-    maxx: float,
-    maxy: float,
-    block_size: float,
-    n_bx: int,
-    n_by: int,
-) -> list[QgsGeometry]:
-    """Vertical + horizontal line geometries for the literal block grid
-    `spatial_block_folds` partitioned points into — the boundaries actually
-    used to assign folds, not an approximation of them."""
-    lines = []
-    for i in range(n_bx + 1):
-        x = minx + i * block_size
-        lines.append(QgsGeometry.fromPolylineXY([QgsPointXY(x, miny), QgsPointXY(x, maxy)]))
-    for j in range(n_by + 1):
-        y = miny + j * block_size
-        lines.append(QgsGeometry.fromPolylineXY([QgsPointXY(minx, y), QgsPointXY(maxx, y)]))
-    return lines
-
-
-def grid_layer(
-    minx: float,
-    miny: float,
-    maxx: float,
-    maxy: float,
-    block_size: float,
-    n_bx: int,
-    n_by: int,
-    crs: str,
-    name: str = "block_grid",
-) -> QgsVectorLayer:
-    """A thin, translucent line layer showing spatial-block CV's actual grid
-    — without this, a spatial block preview looks identical to a plain
-    categorical scatter of points, with no visual evidence the folds are
-    spatially contiguous blocks rather than an arbitrary label."""
-    layer = QgsVectorLayer(f"LineString?crs={crs}", name, "memory")
-    provider = layer.dataProvider()
-    feats = []
-    for geom in grid_line_geometries(minx, miny, maxx, maxy, block_size, n_bx, n_by):
-        f = QgsFeature()
-        f.setGeometry(geom)
-        feats.append(f)
-    provider.addFeatures(feats)
-    layer.updateExtents()
-    symbol = QgsSymbol.defaultSymbol(layer.geometryType())
-    symbol.setColor(QColor(INK))
-    symbol.setOpacity(0.4)
-    symbol.symbolLayer(0).setWidth(0.4)
-    layer.renderer().setSymbol(symbol)
-    return layer
-
-
-def block_fold_geometries(
-    minx: float,
-    miny: float,
-    block_size: float,
-    n_bx: int,
-    fold_of_block: dict[int, int],
-) -> list[tuple[int, QgsGeometry]]:
-    """(fold_id, square polygon) for every occupied block, reconstructed from
-    the same row/col math spatial_block_folds used (block_id = row * n_bx + col)."""
+def block_fold_geometries(plan: SpatialBlockPlan) -> list[tuple[int, QgsGeometry]]:
+    """(fold_id, polygon) for every occupied block, built from the exact
+    centers and shape spatial_block_folds computed (plan.block_centers/
+    plan.shape) via core's block_polygon_corners — never re-derived
+    independently, so a drawn block can't silently diverge from the block
+    it's actually standing in for."""
     out: list[tuple[int, QgsGeometry]] = []
-    for block, fold in fold_of_block.items():
-        row = block // n_bx
-        col = block % n_bx
-        x0 = minx + col * block_size
-        y0 = miny + row * block_size
-        x1 = x0 + block_size
-        y1 = y0 + block_size
-        ring = [
-            QgsPointXY(x0, y0),
-            QgsPointXY(x1, y0),
-            QgsPointXY(x1, y1),
-            QgsPointXY(x0, y1),
-            QgsPointXY(x0, y0),
-        ]
+    for block, (cx, cy) in plan.block_centers.items():
+        fold = plan.fold_of_block[block]
+        corners = block_polygon_corners(plan.shape, cx, cy, plan.block_size)
+        ring = [QgsPointXY(px, py) for px, py in corners]
+        ring.append(ring[0])
         out.append((int(fold), QgsGeometry.fromPolygonXY([ring])))
     return out
 
 
 def block_fold_layer(
-    minx: float,
-    miny: float,
-    block_size: float,
-    n_bx: int,
-    fold_of_block: dict[int, int],
+    plan: SpatialBlockPlan,
     crs: str,
     name: str = "fold_blocks",
 ) -> QgsVectorLayer:
-    """A polygon layer of the spatial-block CV blocks, filled semi-transparently
-    by the fold each block was assigned to. This is the actual partitioning the
-    colored points sit inside, so folds read as contiguous regions rather than
-    a scatter of same-colored dots. Fill colors are assigned the same way as
-    the point folds (PALETTE indexed by sorted fold value) so a block and the
-    points in it share a color."""
+    """A polygon layer of the spatial-block CV blocks (square or hexagon,
+    per plan.shape), filled semi-transparently by the fold each block was
+    assigned to. This is the actual partitioning the colored points sit
+    inside, so folds read as contiguous regions rather than a scatter of
+    same-colored dots. Fill colors are assigned the same way as the point
+    folds (PALETTE indexed by sorted fold value) so a block and the points
+    in it share a color."""
     layer = QgsVectorLayer(f"Polygon?crs={crs}&field=fold:string(16)", name, "memory")
     provider = layer.dataProvider()
     feats = []
     labels: list[str] = []
-    for fold, geom in block_fold_geometries(minx, miny, block_size, n_bx, fold_of_block):
+    for fold, geom in block_fold_geometries(plan):
         f = QgsFeature()
         f.setGeometry(geom)
         f.setAttributes([str(fold)])

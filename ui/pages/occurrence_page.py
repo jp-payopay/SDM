@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from qgis.core import QgsCoordinateReferenceSystem
+from qgis.gui import QgsProjectionSelectionWidget
 from qgis.PyQt.QtWidgets import (
     QFileDialog,
     QFormLayout,
@@ -25,9 +27,10 @@ class OccurrencePage(StagePageMixin, QWizardPage):
         self.wizard_ref = wizard
         self.setTitle("Occurrence data")
         self.setSubTitle(
-            "Select a CSV or vector file with the observation points. "
-            "Choose presence-only if the file lists only presences; presence/absence "
-            "if it contains a column indicating presence (1) or absence (0)."
+            "Select a CSV (Comma-Separated Values) or vector file with the "
+            "observation points. Choose presence-only if the file lists only "
+            "presences; presence/absence if it contains a column indicating "
+            "presence (1) or absence (0)."
         )
 
         self.mode_po = QRadioButton("Presence-only")
@@ -45,7 +48,11 @@ class OccurrencePage(StagePageMixin, QWizardPage):
         self.y_field = QLineEdit("y")
         self.presence_field = QLineEdit("")
         self.presence_field.setPlaceholderText("(only for presence/absence)")
-        self.crs_edit = QLineEdit("EPSG:4326")
+        # Same CRS picker used by native QGIS Processing dialogs (search by
+        # name/EPSG code, recently-used list) instead of a free-text field a
+        # typo could turn into an invalid/nonexistent CRS.
+        self.crs_edit = QgsProjectionSelectionWidget()
+        self.crs_edit.setCrs(QgsCoordinateReferenceSystem("EPSG:4326"))
         self.layer_name = QLineEdit("")
         self.layer_name.setPlaceholderText("(optional: vector layer name)")
 
@@ -87,9 +94,14 @@ class OccurrencePage(StagePageMixin, QWizardPage):
 
         self._stage_ok = False
         self._last_snapshot: str | None = None
-        for w in (self.path_edit, self.x_field, self.y_field, self.presence_field, self.crs_edit, self.layer_name):
+        for w in (self.path_edit, self.x_field, self.y_field, self.presence_field, self.layer_name):
             w.textChanged.connect(self.completeChanged)
+        self.crs_edit.crsChanged.connect(self.completeChanged)
         self.mode_po.toggled.connect(self.completeChanged)
+
+    def _crs_text(self) -> str:
+        crs = self.crs_edit.crs()
+        return crs.authid() if crs.isValid() else "EPSG:4326"
 
     def _browse(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
@@ -108,7 +120,7 @@ class OccurrencePage(StagePageMixin, QWizardPage):
             self.x_field.text().strip(),
             self.y_field.text().strip(),
             self.presence_field.text().strip(),
-            self.crs_edit.text().strip(),
+            self._crs_text(),
             self.layer_name.text().strip(),
         )
 
@@ -120,7 +132,7 @@ class OccurrencePage(StagePageMixin, QWizardPage):
         x_field = self.x_field.text().strip() or "x"
         y_field = self.y_field.text().strip() or "y"
         presence_field = self.presence_field.text().strip()
-        crs = self.crs_edit.text().strip() or "EPSG:4326"
+        crs = self._crs_text()
         layer_name = self.layer_name.text().strip()
 
         def _work():
@@ -193,7 +205,7 @@ class OccurrencePage(StagePageMixin, QWizardPage):
         cfg.occurrence.x_field = self.x_field.text().strip() or "x"
         cfg.occurrence.y_field = self.y_field.text().strip() or "y"
         cfg.occurrence.presence_field = self.presence_field.text().strip()
-        cfg.occurrence.crs = self.crs_edit.text().strip() or "EPSG:4326"
+        cfg.occurrence.crs = self._crs_text()
         cfg.occurrence.layer_name = self.layer_name.text().strip()
 
     def validatePage(self) -> bool:

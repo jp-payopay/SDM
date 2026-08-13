@@ -125,20 +125,23 @@ def extract_values(stack: RasterStack, x: np.ndarray, y: np.ndarray) -> np.ndarr
 
 def iter_windows(stack: RasterStack, block_rows: int = 256):
     """Yield (row_off, height, arr) — arr has shape (n_bands, height, width)."""
-    with rasterio.open(stack.paths[0]) as ref:
-        nodata_ref = ref.nodata
-        for row_off in range(0, stack.height, block_rows):
-            h = min(block_rows, stack.height - row_off)
-            arr = np.empty((len(stack.paths), h, stack.width), dtype=np.float32)
-            for i, path in enumerate(stack.paths):
-                with rasterio.open(path) as src:
-                    band = src.read(1, window=((row_off, row_off + h), (0, stack.width)))
-                    nd = src.nodata if src.nodata is not None else nodata_ref
-                    band = band.astype(np.float32)
-                    if nd is not None:
-                        band = np.where(band == nd, np.nan, band)
-                    arr[i] = band
-            yield row_off, h, arr
+    for row_off in range(0, stack.height, block_rows):
+        h = min(block_rows, stack.height - row_off)
+        arr = np.empty((len(stack.paths), h, stack.width), dtype=np.float32)
+        for i, path in enumerate(stack.paths):
+            with rasterio.open(path) as src:
+                band = src.read(1, window=((row_off, row_off + h), (0, stack.width)))
+                # Each band's own nodata only — matching extract_values().
+                # Falling back to another band's nodata value (e.g. the
+                # first raster's) would treat a genuine data value in a band
+                # that defines no nodata of its own as missing, whenever it
+                # happens to equal some other band's sentinel.
+                nd = src.nodata
+                band = band.astype(np.float32)
+                if nd is not None:
+                    band = np.where(band == nd, np.nan, band)
+                arr[i] = band
+        yield row_off, h, arr
 
 
 def raster_extent_polygon(stack: RasterStack) -> tuple[float, float, float, float]:
