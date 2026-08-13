@@ -143,7 +143,7 @@
 </head>
 <body>
 <h1>SDM report</h1>
-<p class="meta">Run <code>{{ run_id }}</code> &middot; Generated {{ generated_at }}</p>
+<p class="meta">Run <code>{{ run_id }}</code> &middot; Generated {{ generated_at }}{% if duration_formatted %} &middot; Total runtime: {{ duration_formatted }}{% endif %}</p>
 
 {% if interpretation %}
 <h2>Generalized interpretations</h2>
@@ -188,6 +188,9 @@
 {% endif %}
 
 <h2>4. Predictor selection (stepwise VIF)</h2>
+{% if vif.skipped %}
+<p>Skipped by user choice — all {{ vif.retained | length }} predictor(s) kept without a multicollinearity check: <b>{{ vif.retained | join(", ") }}</b>.</p>
+{% else %}
 <p>Cutoff: <b>{{ vif.cutoff }}</b>. Retained: <b>{{ vif.retained | join(", ") }}</b>. Dropped: <b>{{ vif.dropped | join(", ") or "none" }}</b>.</p>
 <div class="card-grid">
 {% for step in vif.steps %}
@@ -200,6 +203,7 @@
 </div>
 {% endfor %}
 </div>
+{% endif %}
 
 {% if background %}
 <h2>5. Background points</h2>
@@ -207,7 +211,7 @@
 {% endif %}
 
 <h2>6. Cross-validation</h2>
-<p>Method: <b>{{ split.method }}</b>{% if split.plan %} · block size: {{ "%.2f"|format(split.plan.block_size) }} ({{ split.plan.source }}){% endif %}. Folds used: {{ split.n_folds }}.</p>
+<p>Method: <b>{{ split.method }}</b>{% if split.plan %} · block size: {{ "%.2f"|format(split.plan.block_size) }} ({{ split.plan.source }}) · shape: {{ "hexagonal" if split.plan.shape == "hexagon" else "square" }}{% endif %}. Folds used: {{ split.n_folds }}.</p>
 
 <h2>7. Model performance</h2>
 <table>
@@ -222,6 +226,11 @@
   </tr>
   {% endfor %}
 </table>
+<p><small>Random Forest fits in parallel (<code>n_jobs=-1</code>), so rerunning this
+report's <code>run_config.json</code> can differ from these numbers at the
+floating-point level for RF — usually invisible, but the Boyce (CBI) column's
+bin-edge comparisons can occasionally shift by a few hundredths as a result.
+AUC and TSS are unaffected.</small></p>
 
 {% if failed_runs %}
 <div class="warn"><b>Some runs failed:</b>

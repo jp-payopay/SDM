@@ -21,6 +21,10 @@ class VIFReport:
     steps: list[VIFStep] = field(default_factory=list)
     retained: list[str] = field(default_factory=list)
     dropped: list[str] = field(default_factory=list)
+    # True when stepwise elimination was bypassed entirely (the user chose
+    # to keep every predictor) rather than run and coincidentally drop
+    # nothing — distinguishes "skipped" from "ran, nothing was collinear".
+    skipped: bool = False
 
     def as_dict(self) -> dict:
         return {
@@ -28,6 +32,7 @@ class VIFReport:
             "retained": self.retained,
             "dropped": self.dropped,
             "steps": [s.as_dict() for s in self.steps],
+            "skipped": self.skipped,
         }
 
 
@@ -56,7 +61,11 @@ def stepwise_vif(
         vif_map = {names[i]: float(vifs[i]) for i in range(len(names))}
         max_i = int(np.argmax(vifs))
         max_v = float(vifs[max_i])
-        if max_v <= cutoff or not np.isfinite(max_v):
+        # An infinite/NaN VIF means a zero-variance or perfectly collinear
+        # predictor (see _compute_vifs' ss_tot<=0 case) — the worst case, not
+        # a stop condition. It must be dropped like any other high-VIF
+        # predictor, not left "retained" in the report while its VIF reads inf.
+        if np.isfinite(max_v) and max_v <= cutoff:
             report.steps.append(VIFStep(step=step, vifs=vif_map, dropped=None))
             break
         drop_name = names[max_i]

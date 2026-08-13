@@ -7,7 +7,7 @@ from .background.random import sample_random
 from .cleaning.coord_clean import CleaningReport, auto_clean
 from .cleaning.thinning import ThinningReport, thin_to_pixel
 from .config import SDMConfig
-from .io.occurrences import OccurrenceData
+from .io.occurrences import OccurrenceData, reproject_occurrences
 from .io.rasters import RasterStack, extract_values
 from .predictors.vif import VIFReport, stepwise_vif
 from .split.kfold import kfold
@@ -23,7 +23,16 @@ def stage_clean(
     occ: OccurrenceData,
     stack: RasterStack,
 ) -> tuple[OccurrenceData, CleaningReport | None, ThinningReport | None]:
-    """Apply auto coordinate cleaning and/or thinning per cfg.cleaning."""
+    """Reproject occurrences into the predictor stack's CRS (a no-op if
+    already matching), then apply auto coordinate cleaning and/or thinning
+    per cfg.cleaning.
+
+    Reprojection runs unconditionally, not gated by cfg.cleaning.auto_clean —
+    every downstream consumer (extent/nodata checks here, and raw pixel
+    extraction in collect_labeled_points_and_extract) assumes occ.x/occ.y are
+    already in the raster's own CRS units.
+    """
+    occ = reproject_occurrences(occ, stack.crs)
     cleaning_rep: CleaningReport | None = None
     thinning_rep: ThinningReport | None = None
     if cfg.cleaning.auto_clean:
@@ -88,7 +97,16 @@ def stage_vif(
     X_full: np.ndarray,
     feature_names: list[str],
 ) -> tuple[np.ndarray, list[str], list[int], VIFReport]:
-    """Run stepwise VIF predictor selection."""
+    """Run stepwise VIF predictor selection, or keep every predictor
+    untouched if cfg.vif.enabled is False."""
+    if not cfg.vif.enabled:
+        kept_idx = list(range(len(feature_names)))
+        return (
+            X_full,
+            list(feature_names),
+            kept_idx,
+            VIFReport(cutoff=cfg.vif.cutoff, retained=list(feature_names), skipped=True),
+        )
     X_kept, kept_names, vif_report = stepwise_vif(
         X_full, feature_names, cutoff=cfg.vif.cutoff
     )
@@ -123,7 +141,8 @@ def make_folds(
                 cfg.split.block_size, stack.crs, float(py.mean())
             )
         folds, plan, fold_id = spatial_block_folds(
-            px, py, stack, k=cfg.split.k, block_size=block_size, rng=rng
+            px, py, stack, k=cfg.split.k, block_size=block_size,
+            block_shape=cfg.split.block_shape, rng=rng,
         )
         return folds, plan, fold_id
     raise ValueError(f"Unknown split method: {method}")
