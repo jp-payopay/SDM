@@ -30,6 +30,23 @@ def test_model_fits_and_predicts(algo, toy_data):
     assert np.all((p >= 0) & (p <= 1))
 
 
+@pytest.mark.parametrize("algo", list_algorithms())
+def test_predict_proba_before_fit_raises_clear_error(algo, toy_data):
+    """Regression test: predict_proba() used to guard against an unfitted
+    model with `assert self._x is not None` — stripped entirely under
+    python -O/PYTHONOPTIMIZE, which would silently skip the check instead of
+    failing clearly. The shared SDMModel._check_fitted() must raise a real,
+    always-present error instead.
+    """
+    dep = SKIPPABLE.get(algo)
+    if dep:
+        pytest.importorskip(dep)
+    X, _y = toy_data
+    model = build_model(algo, random_state=0)
+    with pytest.raises(RuntimeError, match="must be fit"):
+        model.predict_proba(X)
+
+
 def test_permutation_importance_returns_all_features(toy_data):
     X, y = toy_data
     model = build_model("lr", random_state=0)
