@@ -47,5 +47,5 @@ class LRModel(SDMModel):
         return self
 
     def predict_proba(self, X: np.ndarray) -> np.ndarray:
-        assert self._pipe is not None, "Model must be fit before predict_proba."
+        self._check_fitted()
         return self._pipe.predict_proba(X)[:, 1]

@@ -106,7 +106,7 @@ class SDMConfig:
     ensemble: EnsembleConfig = field(default_factory=EnsembleConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
     random_seed: int = 42
-    version: str = "1.0.0"
+    version: str = "1.0.1"
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -131,7 +131,7 @@ class SDMConfig:
             ensemble=build(EnsembleConfig, data.get("ensemble")),
             output=build(OutputConfig, data.get("output")),
             random_seed=data.get("random_seed", 42),
-            version=data.get("version", "1.0.0"),
+            version=data.get("version", "1.0.1"),
         )
 
     @classmethod

@@ -38,5 +38,5 @@ class SVMModel(SDMModel):
         return self
 
     def predict_proba(self, X: np.ndarray) -> np.ndarray:
-        assert self._pipe is not None
+        self._check_fitted()
         return self._pipe.predict_proba(X)[:, 1]

@@ -49,7 +49,7 @@ class ENFAModel(SDMModel):
         return self
 
     def predict_proba(self, X: np.ndarray) -> np.ndarray:
-        assert self._mean is not None
+        self._check_fitted()
         Xs = (X - self._mean) / self._std
         d = self._mahalanobis(Xs)
         s = np.exp(-d / self._d_scale)

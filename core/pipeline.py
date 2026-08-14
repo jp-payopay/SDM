@@ -803,7 +803,9 @@ class Pipeline:
         try:
             self._progress_cb(stage, float(fraction), message)
         except Exception:
-            pass
+            # A broken/misbehaving UI progress callback must never abort an
+            # otherwise-successful modeling run.
+            return
 
 
 def _reps_by_algo(reps: list[ReplicateResult]):

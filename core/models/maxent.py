@@ -65,6 +65,6 @@ class MaxEntModel(SDMModel):
     def predict_proba(self, X: np.ndarray) -> np.ndarray:
         # This elapid version fixes the output transform at construction
         # time (transform="cloglog" above) rather than accepting it here.
-        assert self._model is not None
+        self._check_fitted()
         raw = self._model.predict(X)
         return np.asarray(raw, dtype=np.float64).ravel()

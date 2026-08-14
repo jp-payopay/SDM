@@ -29,7 +29,7 @@ class GAMModel(SDMModel):
         return self
 
     def predict_proba(self, X: np.ndarray) -> np.ndarray:
-        assert self._model is not None
+        self._check_fitted()
         raw = np.asarray(self._model.predict_proba(X), dtype=np.float64)
         # pygam can numerically diverge (overflow/underflow in its link function)
         # on small or separable datasets, producing NaN/inf instead of raising.

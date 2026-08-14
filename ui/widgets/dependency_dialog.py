@@ -36,7 +36,12 @@ class _PipInstallWorker(QObject):
 
     def run(self) -> None:
         try:
-            proc = subprocess.Popen(
+            # self._python_exe comes from plugin.py's _python_executable(),
+            # which only ever returns a real filesystem path it found itself
+            # (never user-typed text); self._packages is drawn from the
+            # plugin's own hardcoded dependency list (plugin.py's `required`),
+            # never arbitrary input. Passed as an argv list, never a shell.
+            proc = subprocess.Popen(  # nosec B603
                 [self._python_exe, "-m", "pip", "install", *self._packages],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
@@ -46,7 +51,9 @@ class _PipInstallWorker(QObject):
         except Exception as exc:
             self.failed.emit(f"{exc}\n{traceback.format_exc()}")
             return
-        assert proc.stdout is not None
+        if proc.stdout is None:
+            self.failed.emit("pip subprocess started with no stdout pipe.")
+            return
         for line in proc.stdout:
             self.line.emit(line.rstrip("\n"))
         self.finished.emit(proc.wait())

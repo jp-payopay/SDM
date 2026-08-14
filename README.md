@@ -1,4 +1,9 @@
-<img width="1400" height="350" alt="sdm_plugin_banner" src="https://github.com/user-attachments/assets/f94bc548-05dc-43bd-85e2-fd858d46349c" />
+# SDM
+
+A guided QGIS 4 plugin for species distribution modeling, walking you through
+data loading, cleaning, predictor selection, cross-validation, modeling,
+ensembling, and reporting — with a live map preview at every step and no
+blind final run.
 
 ## Features
 
@@ -88,6 +93,16 @@ Run tests:
 ```
 pytest tests/
 ```
+
+Build a clean release zip (excludes tests, dev/example data, and caches —
+see `scripts/build_zip.py` for the exact include list):
+
+```
+python scripts/build_zip.py
+```
+
+This writes `dist/sdm_plugin.zip`, ready to upload to the QGIS plugin
+repository or attach to a GitHub release.
 
 ## License
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -15,8 +16,17 @@ def open_path(path: str) -> None:
     """
     p = Path(path)
     if sys.platform == "darwin":
-        subprocess.Popen(["open", str(p)])
+        cmd = "open"
     elif sys.platform.startswith("win"):
-        subprocess.Popen(["explorer", str(p)])
+        cmd = "explorer"
     else:
-        subprocess.Popen(["xdg-open", str(p)])
+        cmd = "xdg-open"
+    # Resolve the full executable path ourselves instead of handing Popen a
+    # bare command name to look up on PATH at call time.
+    exe = shutil.which(cmd) or cmd
+    # `path` is always this plugin's own already-written report file or
+    # output directory (see callers: sdm_dock.py/summary_page.py, both pass
+    # a RunResult path from a run this session just performed) — never
+    # externally supplied text — and is passed as an argv list, never
+    # through a shell.
+    subprocess.Popen([exe, str(p)])  # nosec B603

@@ -33,6 +33,18 @@ class SDMModel(ABC):
     def set_feature_names(self, names: list[str]) -> None:
         self.feature_names = list(names)
 
+    def _check_fitted(self) -> None:
+        """Raise a clear error if predict_proba is called before fit().
+
+        Deliberately a real `if`/`raise` rather than `assert self._x is not
+        None` (the old per-subclass pattern) — assert statements are
+        stripped entirely when Python runs with `-O`/`PYTHONOPTIMIZE`, which
+        would silently turn this into no check at all rather than a fast,
+        clear failure.
+        """
+        if not self._fitted:
+            raise RuntimeError(f"{self.name} model must be fit before predict_proba().")
+
     def permutation_importance(
         self,
         X: np.ndarray,

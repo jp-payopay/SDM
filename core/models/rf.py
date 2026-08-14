@@ -39,5 +39,5 @@ class RFModel(SDMModel):
         return self
 
     def predict_proba(self, X: np.ndarray) -> np.ndarray:
-        assert self._clf is not None
+        self._check_fitted()
         return self._clf.predict_proba(X)[:, 1]

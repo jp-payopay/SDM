@@ -117,16 +117,18 @@ class SDMWizardPlugin:
 
     def _open_wizard(self) -> None:
         if self._wizard is not None:
+            # With WA_DeleteOnClose set on the wizard, a closed instance is
+            # gone (isVisible() raises RuntimeError on the deleted C++
+            # object); a merely-hidden-behind-other-windows one is still
+            # visible, so raise/activate is enough.
             try:
-                # With WA_DeleteOnClose set on the wizard, a closed instance
-                # is gone (RuntimeError below); a merely-hidden-behind-other-
-                # windows one is still visible, so raise/activate is enough.
-                if self._wizard.isVisible():
-                    self._wizard.raise_()
-                    self._wizard.activateWindow()
-                    return
+                visible = self._wizard.isVisible()
             except RuntimeError:
-                pass
+                visible = False
+            if visible:
+                self._wizard.raise_()
+                self._wizard.activateWindow()
+                return
             self._wizard = None
 
         from .ui.wizard import SDMWizard
@@ -149,10 +151,11 @@ class SDMWizardPlugin:
         dialog = None
         if self._dep_dialog is not None:
             try:
-                if self._dep_dialog.is_installing():
-                    dialog = self._dep_dialog
+                installing = self._dep_dialog.is_installing()
             except RuntimeError:
-                pass
+                installing = False
+            if installing:
+                dialog = self._dep_dialog
             if dialog is None:
                 self._dep_dialog = None
 

@@ -1,8 +1,9 @@
 [general]
 name=SDM
 qgisMinimumVersion=4.0
+qgisMaximumVersion=4.99
 description=Guided species distribution modeling with multiple algorithms, ensemble prediction, and evaluation.
-version=1.0.0
+version=1.0.1
 author=SDM contributors
 email=jpaul.payopay@gmail.com
 
@@ -12,9 +13,8 @@ tracker=https://github.com/jp-payopay/SDM/issues
 repository=https://github.com/jp-payopay/SDM
 category=Analysis
 tags=species distribution modeling, sdm, maxent, ecology, biodiversity, ensemble
-homepage=https://github.com/jp-payopay/bioclimPH
+homepage=https://github.com/jp-payopay/SDM
 icon=icon.png
 experimental=False
 deprecated=False
-supportsQt6=True
 license=GPL-3.0-or-later
