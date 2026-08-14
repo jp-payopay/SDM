@@ -1,4 +1,4 @@
-<img width="1400" height="350" alt="sdm_plugin_banner" src="https://github.com/user-attachments/assets/5d747b77-099f-48a5-b2fa-b3b89b801b3a" /><img width="1400" height="350" alt="sdm_plugin_banner" src="https://github.com/user-attachments/assets/460ae204-79eb-42de-8b5d-f39a9f509cf1" />
+<img width="1400" height="350" alt="sdm_plugin_banner" src="https://github.com/user-attachments/assets/5d747b77-099f-48a5-b2fa-b3b89b801b3a" />
 
 ## Features
 
