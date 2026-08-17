@@ -5,24 +5,22 @@ from qgis.PyQt.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QListWidget,
+    QProgressBar,
     QPushButton,
     QTableWidget,
     QVBoxLayout,
     QWizardPage,
 )
 
-from ...core.io.rasters import describe_stack, load_stack
-from ..page_utils import (
-    configure_eda_table,
-    fill_eda_table,
-    raster_summary_text,
-    wrap_scrollable,
-)
+from ..page_utils import EDA_TABLE_CAPTION, configure_eda_table, wrap_scrollable
 from ..qgis_layers import clear_stage, show_rasters
-from ..workers import StagePageMixin, snapshot_key
+from ..raster_stage import RasterStackPageMixin, load_outcome
+from ..workers import snapshot_key
 
 
-class PredictorsPage(StagePageMixin, QWizardPage):
+class PredictorsPage(RasterStackPageMixin, QWizardPage):
+    kind = "predictor"
+
     def __init__(self, wizard) -> None:
         super().__init__()
         self.wizard_ref = wizard
@@ -30,7 +28,8 @@ class PredictorsPage(StagePageMixin, QWizardPage):
         self.setSubTitle(
             "Add one or more raster predictors. They must share the same CRS "
             "(Coordinate Reference System), extent, resolution, and grid. Load and "
-            "Validate will report a clear error otherwise."
+            "Validate reports each layer's properties if they don't, and Fix "
+            "predictor layers resamples them onto a common grid."
         )
         self.list = QListWidget()
         self.list.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
@@ -50,13 +49,29 @@ class PredictorsPage(StagePageMixin, QWizardPage):
         self.load_btn = QPushButton("Load && Validate")
         self.load_btn.setProperty("cls", "primary")
         self.load_btn.clicked.connect(self._on_load_clicked)
-        self.busy_label = QLabel("Validating...")
+        self.fix_btn = QPushButton("Fix predictor layers…")
+        self.fix_btn.setProperty("cls", "primary")
+        self.fix_btn.setToolTip(
+            "Available once Load && Validate finds rasters that don't line up. "
+            "Resamples every listed raster onto one common CRS, extent and "
+            "resolution, writing new files and leaving the originals untouched."
+        )
+        self.fix_btn.clicked.connect(self.on_fix_clicked)
+        action_row = QHBoxLayout()
+        action_row.addWidget(self.load_btn)
+        action_row.addWidget(self.fix_btn)
+
+        self.busy_label = QLabel(self.BUSY_TEXT)
         self.busy_label.setVisible(False)
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setVisible(False)
         self.summary_label = QLabel("")
         self.summary_label.setWordWrap(True)
         self.error_label = QLabel("")
         self.error_label.setStyleSheet("color: #b00020;")
         self.error_label.setWordWrap(True)
+        self.table_label = QLabel(EDA_TABLE_CAPTION)
+        self.table_label.setWordWrap(True)
         self.table = QTableWidget()
         configure_eda_table(self.table)
 
@@ -64,17 +79,19 @@ class PredictorsPage(StagePageMixin, QWizardPage):
         layout.addWidget(QLabel("Predictor rasters:"))
         layout.addWidget(self.list)
         layout.addLayout(btn_row)
-        layout.addWidget(self.load_btn)
+        layout.addLayout(action_row)
         layout.addWidget(self.busy_label)
+        layout.addWidget(self.progress_bar)
         layout.addWidget(self.error_label)
         layout.addWidget(self.summary_label)
-        layout.addWidget(QLabel("Per-raster summary (exploratory data analysis):"))
+        layout.addWidget(self.table_label)
         layout.addWidget(self.table)
         layout.addStretch()
         wrap_scrollable(self, layout)
 
         self._stage_ok = False
         self._last_snapshot: str | None = None
+        self.set_fix_available(False)
 
     def _add(self) -> None:
         paths, _ = QFileDialog.getOpenFileNames(
@@ -83,45 +100,48 @@ class PredictorsPage(StagePageMixin, QWizardPage):
         )
         for p in paths:
             self.list.addItem(p)
+        self.set_fix_available(False)
         self.completeChanged.emit()
 
     def _remove(self) -> None:
         for item in self.list.selectedItems():
             self.list.takeItem(self.list.row(item))
+        self.set_fix_available(False)
         self.completeChanged.emit()
 
     def _clear(self) -> None:
         self.list.clear()
+        self.set_fix_available(False)
         self.completeChanged.emit()
-
-    def _paths(self) -> list[str]:
-        return [self.list.item(i).text() for i in range(self.list.count())]
 
     def _snapshot(self) -> str:
         return snapshot_key(tuple(self._paths()))
 
     def _on_load_clicked(self) -> None:
         self.error_label.setText("")
+        self._start_load()
+
+    def _start_load(self) -> None:
         paths = self._paths()
         if not paths:
             return
 
         def _work():
-            stack = load_stack(paths)
-            return stack, describe_stack(stack)
+            return load_outcome(paths)
 
-        self.run_stage_async(
-            _work, self._on_loaded, self._on_load_failed,
-            button=self.load_btn, busy_widget=self.busy_label,
+        self.run_raster_stage(
+            _work, self._on_loaded, self._on_load_failed, button=self.load_btn,
         )
 
-    def _on_loaded(self, result) -> None:
-        stack, eda = result
-        sampled = fill_eda_table(self.table, eda)
-        summary = raster_summary_text(stack)
-        if sampled:
-            summary += " Statistics come from a sampled read of large rasters."
-        self.summary_label.setText(summary)
+    def _on_loaded(self, outcome) -> None:
+        if not outcome.aligned:
+            self._stage_ok = False
+            self._last_snapshot = None
+            self.show_alignment_problem(outcome)
+            return
+
+        self.show_eda(outcome)
+        stack = outcome.stack
         show_rasters(self.wizard_ref.iface, "Predictors", stack)
 
         new_key = self._snapshot()
@@ -137,15 +157,13 @@ class PredictorsPage(StagePageMixin, QWizardPage):
 
     def _on_load_failed(self, err: str) -> None:
         self._stage_ok = False
-        self.table.setRowCount(0)
-        self.summary_label.setText("")
+        self.clear_results()
         self.error_label.setText(err.splitlines()[0] if err else "Failed to load rasters.")
 
     def invalidate(self) -> None:
         self._stage_ok = False
         self._last_snapshot = None
-        self.table.setRowCount(0)
-        self.summary_label.setText("")
+        self.clear_results()
         clear_stage("Predictors")
         self.completeChanged.emit()
 

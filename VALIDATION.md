@@ -498,7 +498,299 @@ dev environment) — same caveat as every prior styling/behavior section.
   stage group before adding anything.) Switch back to **Spatial block** and
   confirm the blocks reappear correctly too (this direction already worked).
 
-## 17. What to report back
+## 17. Raster alignment diagnostics + "Fix predictor layers" (new)
+
+Not visually confirmed in real QGIS (no QGIS install in the dev environment).
+The core resampling itself *is* covered by `tests/test_align.py`; what needs
+eyes is the wizard wiring and the dialog's layout.
+
+Prepare three deliberately mismatched rasters (any GDAL-readable files will
+do — QGIS's *Raster → Projections → Warp* can make them from your example
+data): one in the project CRS, one reprojected to a different CRS, and one
+resampled to a coarser pixel size and nudged half a pixel off the grid. Keep
+at least a partial overlap between all three, and give one of them integer
+(categorical) values.
+
+- **Diagnostic table replaces the statistics table**: on **Predictor
+  rasters**, add all three and click **Load && Validate**. Instead of the
+  usual per-raster EDA statistics you should get a red line naming what
+  differs ("These rasters don't line up — they differ in CRS, resolution,
+  extent and pixel alignment. …Use "Fix predictor layers" to resample them
+  onto a common grid."), the caption changing to "Layer properties (values
+  that differ from the first raster are highlighted):", and a table with one
+  row per layer showing **Raster / Data type / CRS / Size (px) / Resolution /
+  NoData / Extent**. Every cell that differs from the *first* raster's should
+  be tinted and bold — check that the CRS cell of the reprojected layer and
+  the Resolution cell of the coarse layer are both marked. **Next** must stay
+  disabled.
+- **The fix button only appears usable when there is something to fix**:
+  before that validation run, **Fix predictor layers…** should be greyed out
+  — including right after adding rasters to the list, before any validation.
+  It should turn active (and styled the same solid green as **Load &&
+  Validate**) only once the run above reports a mismatch, and go back to
+  greyed out whenever you add/remove/clear a raster, a load fails for another
+  reason (a missing file, duplicate predictor names), or a validation
+  succeeds. Load a set of rasters that *do* line up and confirm it stays
+  greyed out throughout.
+- **The fix dialog**: click **Fix predictor layers…**. Confirm the dialog
+  opens instantly (it reads headers only, never pixels) and that:
+  - The **Reference layer** combo lists all three, defaulting to one whose
+    CRS the majority share.
+  - **Use reference layer's CRS** sets the CRS picker to that layer's CRS.
+  - Switching **Extent** and **Resolution** between Intersection / Union /
+    Same as reference updates the green "Result: … pixels … extent …" line
+    immediately. Union should give a bigger pixel count than Intersection;
+    Finest a bigger one than Coarsest.
+  - Choosing **Custom…** for either reveals its input boxes *and their
+    xmin/ymin/x/y captions*, pre-filled from the previous choice; choosing a
+    non-custom mode hides the boxes and captions again.
+  - The **Per-layer output** table has exactly four columns — **Layer / Set
+    Data Type / Set NoData / Resampling** — with no read-only "Data type"
+    column. *Every* row starts identically at `float32` / `-9999` /
+    "bilinear", including the integer land-cover layer, regardless of what
+    each is on disk. Each *Set Data Type* dropdown should still offer the
+    layer's own current type among its options (check this on a layer with an
+    unusual one like int8), and its tooltip should name that current type.
+  - **The guidance paragraph above the table** should explain, in three
+    labelled parts, when to use float (continuous measurements — temperature,
+    rainfall, elevation, NDVI), int (whole numbers that can be negative),
+    uint (whole numbers that cannot, e.g. class codes; with the 0–255 /
+    0–65535 ranges given), what NoData is for, and that a categorical layer
+    needs nearest neighbour rather than bilinear. Read it once for sense and
+    for anything that wraps badly.
+  - **NoData follows the data type**: set the land-cover row's data type to
+    `uint8`. Because `-9999` cannot be stored there, the NoData box should
+    change itself to `255` rather than leaving you with an error to decode.
+    Now type `-9999` back in by hand — *that* should be left alone and
+    reported: the red line reads "…NoData -9999 cannot be stored as uint8
+    (0…255). Choose another value or data type." and **Fix layers** goes
+    disabled until you change one of the two. Typing nonsense in a NoData box
+    should be reported the same way for integer types.
+  - Deliberately pick two layers that don't overlap at all (or set a silly
+    custom extent) and confirm the red line explains the empty extent and
+    **Fix layers** goes disabled.
+- **Running the fix**: set the output folder (defaults to `sdm_aligned` next
+  to the first raster), click **Fix layers**. Both action buttons should
+  disable, a **progress bar** (not a text label) should appear reading
+  "Resampling… N of 3 layers done" and filling as each layer lands, and QGIS
+  must stay responsive. When it finishes, the bar should disappear, the path
+  list should now point at the new files, the page should re-validate itself
+  automatically, and you should end on the *normal* EDA statistics table plus
+  a summary ending "…Resampled copies of 3 raster(s) were written to <folder>;
+  the list now points at those, and your original files are unchanged."
+  **Next** should now enable and **Fix predictor layers…** should be greyed
+  out again. Confirm the originals really are untouched, that the new rasters
+  load into QGIS with the chosen CRS, and that each one carries the data type
+  and NoData value you asked for (QGIS *Layer Properties → Information*).
+- **Pointing the output at the source folder**: reopen the dialog and set the
+  output folder to the folder the source rasters live in. It should refuse
+  with "The output folder would overwrite the rasters being read: …" rather
+  than corrupting the inputs. Pointing it at a folder that already holds
+  same-named files should instead ask "Replace existing files?" first.
+- **Same flow on the projection stack**: repeat the whole check on the
+  **Projection stack** page (its button reads **Fix projection layers…**).
+  One extra thing to confirm there: after fixing, the band-name/order check
+  against the training stack still runs — rename one output file so the stems
+  no longer match the predictors and confirm you get the "Projection rasters
+  don't match the training predictors" error, not a silent pass.
+- **A layer with no CRS at all**: strip the projection from one raster (e.g.
+  export it as an `.asc`) and load it. The properties table should show CRS
+  "none", and the fix dialog should grow an extra **"Assume CRS for layers
+  with none (…)"** picker; with it set, the fix should complete normally.
+
+## 18. Live option descriptions — cross-validation, ensemble, algorithms (new)
+
+Not visually confirmed in real QGIS. All three pages use the same pattern: the
+options sit in a group box with a description underneath that swaps as you move
+between them, each written as *what it does* / bold **Best for:** / a bold third
+line carrying the practical numbers or caveats.
+
+### Cross-validation page
+
+- **Order and default**: the three methods now sit inside a **Method** group
+  box in the order **k-fold, Random hold-out, Spatial block**. **Spatial
+  block is still the one selected** when you first reach the page — the
+  reorder is presentational and deliberately did not change which strategy a
+  new run uses. Confirm a run started without touching this page still writes
+  `"method": "spatial_block"` into `run_config.json`.
+- **The description follows the selection**: below the radios is a
+  description that swaps as you click between the three. Each should have the
+  same three parts — what it does, a bold **Best for:** line, and a bold
+  **Common values:** line — and should name concrete numbers: k = 5 or 10 for
+  k-fold; 20–30% held out with an 80/20 split called out for random hold-out;
+  k = 5 plus the auto-block-size advice for spatial block. Check the bold
+  runs render as bold (the label uses rich text) and that nothing overflows
+  or clips when the wizard window is at its minimum size.
+- **Block-only prose hides itself**: the two paragraphs about block size and
+  block shape, and the "= … in this raster's CRS units" conversion line,
+  should be *visible only while Spatial block is selected*. Click k-fold and
+  confirm they disappear entirely rather than sitting there greyed out —
+  otherwise the page would be describing a method you didn't pick. The
+  parameter fields themselves (k, test size, block size, block shape) still
+  grey out rather than disappearing, as before.
+- **Nothing else moved**: k / test size / auto block size / block size /
+  block shape still enable and disable exactly as they did, **Preview Split**
+  still works for all three methods, and switching method after a preview
+  still clears the previous overlay (see §16).
+
+### Ensemble page
+
+- **The description follows the selection**: the three options now sit in a
+  **Combination** group box with a description below that changes as you
+  click between *Unweighted mean*, *Weighted by AUC* and *Weighted by TSS*.
+  The old static paragraph underneath them is gone — its content is folded
+  into the three descriptions, so confirm nothing was lost: AUC and TSS are
+  each still spelled out on first use, and both still state that the weight
+  is an algorithm's **mean metric across replicates**.
+- **The distinction that matters**: the AUC description should explain that
+  it is a *mild* weighting (random guessing already scores 0.5, so a weak
+  model keeps over half the weight of the best one) and the TSS description
+  that it is a *sharp* one (TSS starts at 0, so weak models shrink toward
+  nothing and a below-random model is clamped to zero weight and drops out).
+  Sanity-check this against a real run: with **Weighted by TSS**, an
+  algorithm with a much lower TSS than the rest should visibly barely move
+  the ensemble map, whereas under **Weighted by AUC** it should still show
+  through. `metrics_per_replicate.json` has the per-algorithm scores to
+  compare against.
+- **Weighted by TSS is still the default** on first arriving at the page, and
+  a run started without touching it still writes
+  `"method": "weighted_tss"` into `run_config.json`.
+- **Layout**: the page has no other controls, so check it reads well at the
+  wizard's minimum size — three radios and a paragraph, no clipping, no
+  horizontal scrollbar.
+
+### Algorithms page
+
+This one works differently from the other two on purpose: it is a
+multi-select page, so the description follows **what you are pointing at**,
+not what is ticked — otherwise you would have to select an algorithm to find
+out whether you wanted it.
+
+- **Hover**: the nine checkboxes are now inside an **Algorithms** group box
+  with a description under them, reading "Point at or tab to an algorithm
+  above to read what it does…" before you touch anything. Move the mouse over
+  each of the nine in turn: the description should swap to that algorithm,
+  headed by its code and full name in bold (e.g. **RF: Random Forest**),
+  *without* ticking anything. Move the pointer away and the last description
+  should stay put rather than reverting to the hint.
+- **Keyboard**: tab through the checkboxes and confirm the description
+  follows keyboard focus the same way, so the page is usable without a mouse.
+- **Ticking still works**: check and uncheck several boxes and confirm the
+  "N algorithm(s) selected times M replicate(s) gives … model fits per fold"
+  line below still updates, **Next** still requires at least one algorithm,
+  and **Show / edit model configuration…** still opens with the selected
+  algorithms.
+- **Spot-check the content** against what you know: RF should mention that it
+  extrapolates poorly and that parallel fitting makes reruns differ in the
+  last decimal (§ the README's reproducibility note); XGB that a missing
+  xgboost package means the run continues without it; ENFA that it is
+  presence-only and rejected in presence/absence mode — cross-check that last
+  one by selecting **Presence / absence** on the Occurrence page with ENFA
+  ticked and confirming the run refuses to start with that message.
+- **Layout**: nine two-column checkboxes plus a three-paragraph description
+  is the tallest of the three description boxes — check it at the wizard's
+  minimum size for clipping, and that the box does not jump in height
+  distractingly as you sweep the mouse across algorithms with different
+  description lengths.
+
+## 19. Background points: disk (min/max distance) and SRE (new)
+
+The samplers themselves are covered by `tests/test_background.py`; what needs
+eyes is the page and the end-to-end run. All on the **Background points**
+page, which only appears in presence-only mode.
+
+- **Four methods, with a live description**: the options are now in a
+  **Method** group box: *Random across raster extent*, *Ratio to presences:
+  random placement, count scaled by the presence total*, *Disk: between a
+  minimum and maximum distance from presences*, and *SRE: outside the
+  presences' environmental envelope*, with a description below that swaps as
+  you click, same as §18. Random stays the default.
+- **Ratio to presences**: selecting it should hide *Number of points* and
+  reveal *Per presence point* (default 4.0) with the resolved total beside
+  it, e.g. "= 200 pseudo-absences from 50 presence points". Before the
+  occurrences are loaded it should instead read "(load and clean the
+  occurrences to see the total)". Sample and confirm the summary's
+  **Background:** figure really is the multiplier times the presence count.
+  Change the multiplier and confirm the total updates live and that **Next**
+  goes unavailable until you re-sample. Since it places points the same way
+  Random does, a ratio run and a Random run asking for the same number of
+  points at the same seed should produce identical points.
+- **Fields follow the method**: with **Random** selected, only *Number of
+  points* should be visible. **Disk** should reveal *Distance unit*, *Minimum
+  distance* (hint "0 = no inner hole"), *Maximum distance* (hint "0 = no
+  upper limit"), the km/m explanation and the italic "= … in this raster's
+  CRS units" conversion line — which should now show a **range**, e.g.
+  "= 2,000 m to 50,000 m", and read "to no upper limit" when the maximum is
+  0. **SRE** should reveal only *Envelope quantile* (default 0.025) and hide
+  every distance field. Check the hints hide with their rows rather than
+  being stranded on screen.
+- **The disk actually leaves a hole**: set minimum 10 km, maximum 50 km, and
+  click **Sample Background**. In the preview, the grey background points
+  should form a visible ring — a clear empty gap around each green presence
+  cluster, and nothing beyond the outer radius. Set the minimum to 0 and
+  re-sample: the gap should close. Set the maximum to 0 and re-sample: points
+  should spread to the edges of the rasters.
+- **An impossible ring is explained, not silently empty**: set a minimum
+  distance larger than your whole study area (say 5,000 km) and sample. You
+  should get a red message about no points falling between the minimum and
+  maximum, not zero background points and a confusing failure further on.
+  Setting minimum ≥ maximum (both non-zero) should likewise be refused.
+- **A shortfall is reported**: ask for far more points than a tight ring can
+  hold (e.g. 100,000 points in a 10–12 km ring). The summary should say
+  "Fewer than the 100,000 requested — the method ran out of eligible
+  locations…" rather than quietly returning fewer.
+- **SRE picks environmentally distinct places**: select SRE and sample. The
+  background points should *not* be scattered evenly — they should avoid the
+  areas whose conditions resemble the presences, which is easiest to see by
+  turning on one predictor raster underneath the preview. Lower the quantile
+  to 0 and re-sample: the envelope widens to the outright min/max of the
+  records, so fewer locations qualify and the points should thin out (or the
+  run should report that none qualify at all, if your records already span
+  every predictor).
+- **End to end**: complete a full run with each of disk and SRE and open
+  `report.html` §5 "Background points". It should name the method and, for
+  disk, "distance from nearest presence: N m to M m" (or "to no limit"); for
+  SRE, "envelope quantile: 0.025". A ratio run should show the drawn count
+  followed by "(4.0 per presence)". Check `run_config.json` records `method` /
+  `ratio` / `min_distance` / `max_distance` / `sre_quantile` and that
+  rerunning from it reproduces the same result.
+
+### Wording pass (all pages)
+
+- **No en or em dashes in anything the user reads.** Walk every wizard page
+  and read the subtitles, option labels, description boxes, hint labels and
+  error messages. Sentences that used to hinge on a dash should now be plain
+  sentences or use a colon. Code comments and docstrings were left alone
+  deliberately, so only judge what is on screen.
+- **No third-party tool names anywhere**: not in the descriptions, and not in
+  the docstrings and comments either. The background page's random
+  description no longer cites MaxEnt, its disk and SRE descriptions no longer
+  cite biomod2, and the cross-validation page's spatial-block description no
+  longer cites R's blockCV. The same pass went through `core/models/*.py`,
+  `core/split/spatial_block.py`, `core/prediction/ensemble.py`,
+  `core/pipeline.py` and `ui/workers.py`, which between them named biomod2,
+  dismo, sdm, ssdm, flexsdm, blockCV, ENMeval, mgcv, e1071, nnet,
+  randomForest, maxnet and Wallace. The substance those references carried is
+  still there, stated directly, and the academic citations (Elith et al.,
+  Guisan & Zimmermann, Phillips et al., Hirzel et al.) were deliberately
+  kept. **This changed only prose**, so a quick regression check is worth it:
+  every algorithm should still fit with the same defaults it had before.
+  Compare `model_hyperparameters.json` from a run before and after.
+- **MaxEnt's label**: the algorithms page now reads "MAXENT: MaxEnt" rather
+  than "MaxEnt (elapid)". Check the same name appears in `report.html` and in
+  the response-curve and importance plot titles.
+- **No package requirements in the algorithms page**: XGBoost's and MaxEnt's
+  **Watch out for** lines no longer mention needing the xgboost or elapid
+  packages. Those are still handled where they belong, by the dependency
+  dialog at launch and by skip-and-continue if a fit fails, so confirm a run
+  with a missing package still behaves the same way.
+- **Old configs still load**: take a `run_config.json` from *before* this
+  change (one with `"method": "buffered"` and `"buffer_distance"`), and load
+  it. It should come back as method `disk` with that distance as the
+  **maximum** and a minimum of 0 — the same points it drew before — not an
+  error.
+
+## 20. What to report back
 
 If anything breaks, copy from the QGIS Python Console:
 - The traceback text.

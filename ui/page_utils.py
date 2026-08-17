@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtGui import QBrush, QColor
 from qgis.PyQt.QtWidgets import (
     QAbstractItemView,
     QLabel,
@@ -12,6 +14,8 @@ from qgis.PyQt.QtWidgets import (
     QWizardPage,
 )
 
+from .theme import CLAY_SOFT
+
 
 def wrapped_label(text: str) -> QLabel:
     """A QLabel with word wrap on. Plain `QLabel(text)` keeps its preferred
@@ -23,6 +27,19 @@ def wrapped_label(text: str) -> QLabel:
     lbl = QLabel(text)
     lbl.setWordWrap(True)
     return lbl
+
+
+def description_label() -> QLabel:
+    """An empty, word-wrapped, rich-text label for copy that changes with the
+    user's current selection — the method descriptions on the
+    cross-validation and ensemble pages. Rich text so the "Best for:" style
+    lead-ins can be bold, which is what makes three paragraphs scannable
+    rather than a wall.
+    """
+    label = QLabel("")
+    label.setWordWrap(True)
+    label.setTextFormat(Qt.TextFormat.RichText)
+    return label
 
 
 def wrap_scrollable(page: QWizardPage, layout: QLayout) -> None:
@@ -88,6 +105,95 @@ def fill_eda_table(table: QTableWidget, eda_list) -> bool:
             table.setItem(row, col, QTableWidgetItem(text))
     table.resizeColumnsToContents()
     return any_sampled
+
+
+# ----- raster grid-properties view (shown when rasters don't line up) -----
+
+PROFILE_HEADERS = [
+    "Raster", "Data type", "CRS", "Size (px)", "Resolution", "NoData", "Extent",
+]
+
+
+def format_resolution(res: tuple[float, float]) -> str:
+    res_x, res_y = res
+    return f"{res_x:.6g} × {res_y:.6g}"
+
+
+def format_extent(bounds: tuple[float, float, float, float]) -> str:
+    minx, miny, maxx, maxy = bounds
+    return f"x {minx:.8g} … {maxx:.8g},  y {miny:.8g} … {maxy:.8g}"
+
+
+def profile_cells(profile) -> list[str]:
+    """One RasterProfile as the row of text shown in a properties table.
+    Shared by the wizard pages and the fix dialog so both describe a layer
+    identically."""
+    return [
+        profile.name,
+        profile.dtype,
+        profile.crs or "none",
+        f"{profile.width} × {profile.height}",
+        format_resolution(profile.resolution),
+        "none" if profile.nodata is None else _fmt_num(profile.nodata),
+        format_extent(profile.bounds),
+    ]
+
+
+def configure_profile_table(table: QTableWidget) -> None:
+    """Set up a QTableWidget to display per-raster grid properties. Pages
+    reuse the same table widget for this and for the EDA view — calling
+    either configure_* switches which one it currently shows."""
+    table.setColumnCount(len(PROFILE_HEADERS))
+    table.setHorizontalHeaderLabels(PROFILE_HEADERS)
+    table.setRowCount(0)
+    table.horizontalHeader().setStretchLastSection(True)
+    table.verticalHeader().setVisible(False)
+    table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+
+
+def fill_profile_table(table: QTableWidget, profiles) -> None:
+    """Populate a properties table from a list of RasterProfile, tinting
+    every cell that differs from the first raster's. The first raster is the
+    one load_stack() treats as the reference, so the tinted cells are exactly
+    the values that made the stack fail to load."""
+    table.setRowCount(len(profiles))
+    reference = profile_cells(profiles[0]) if profiles else []
+    highlight = QBrush(QColor(CLAY_SOFT))
+    # Derived from the table's own font, not a default-constructed one, so a
+    # highlighted cell differs from its neighbours in weight only.
+    bold = table.font()
+    bold.setBold(True)
+    for row, profile in enumerate(profiles):
+        cells = profile_cells(profile)
+        for col, text in enumerate(cells):
+            item = QTableWidgetItem(text)
+            if row > 0 and text != reference[col]:
+                item.setBackground(highlight)
+                item.setFont(bold)
+            table.setItem(row, col, item)
+    table.resizeColumnsToContents()
+
+
+# Captions for the two views a raster page's single table can show.
+EDA_TABLE_CAPTION = "Per-raster summary (exploratory data analysis):"
+PROFILE_TABLE_CAPTION = (
+    "Layer properties (values that differ from the first raster are highlighted):"
+)
+
+
+def alignment_headline(issues, action: str) -> str:
+    """The error line shown when a set of rasters can't be stacked, naming
+    both what differs and the button that fixes it."""
+    labels = issues.labels
+    if len(labels) > 1:
+        named = ", ".join(labels[:-1]) + " and " + labels[-1]
+    else:
+        named = labels[0] if labels else "pixel grid"
+    return (
+        f"These rasters don't line up. They differ in {named}, and they must "
+        f"all share one CRS, extent, resolution and pixel grid. Use “{action}” "
+        "to resample them onto a common grid."
+    )
 
 
 def raster_summary_text(stack) -> str:

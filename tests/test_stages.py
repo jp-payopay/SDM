@@ -73,12 +73,35 @@ def test_collect_labeled_points_po_random_deterministic(tiny_stack, po_csv):
     assert (pf1 == 0).sum() > 0
 
 
-def test_collect_labeled_points_po_buffered(tiny_stack, po_csv):
+def test_collect_labeled_points_po_disk(tiny_stack, po_csv):
     cfg = SDMConfig()
     cfg.data_mode = "presence_only"
     cfg.background.count = 150
-    cfg.background.method = "buffered"
-    cfg.background.buffer_distance = 10.0
+    cfg.background.method = "disk"
+    cfg.background.min_distance = 2.0
+    cfg.background.max_distance = 10.0
+    stack = load_stack(tiny_stack)
+    occ = load_occurrences(po_csv, crs="EPSG:32633")
+
+    px, py, presence_flag, X_full, _ = collect_labeled_points_and_extract(
+        cfg, occ, stack, np.random.default_rng(1)
+    )
+    assert (presence_flag == 0).sum() > 0
+    # Every drawn absence must respect the inner radius: the stack is in a
+    # projected CRS, so config metres pass through as CRS units unchanged.
+    bx, by = px[presence_flag == 0], py[presence_flag == 0]
+    nearest = np.min(
+        np.hypot(bx[:, None] - occ.x[None, :], by[:, None] - occ.y[None, :]), axis=1
+    )
+    assert nearest.min() >= 2.0 - 1e-9
+    assert nearest.max() <= 10.0 + 1e-9
+
+
+def test_collect_labeled_points_po_sre(tiny_stack, po_csv):
+    cfg = SDMConfig()
+    cfg.data_mode = "presence_only"
+    cfg.background.count = 100
+    cfg.background.method = "sre"
     stack = load_stack(tiny_stack)
     occ = load_occurrences(po_csv, crs="EPSG:32633")
 

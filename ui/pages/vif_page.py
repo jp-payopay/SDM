@@ -24,7 +24,8 @@ class VIFPage(StagePageMixin, QWizardPage):
         self.wizard_ref = wizard
         self.setTitle("Predictor selection (stepwise VIF)")
         self.setSubTitle(
-            "VIF (Variance Inflation Factor) measures multicollinearity — how much "
+            "VIF (Variance Inflation Factor) measures multicollinearity, meaning how "
+            "much "
             "one predictor's information overlaps with the others. This step "
             "iteratively drops the predictor with the highest VIF until all "
             "remaining predictors are below the cutoff, so models aren't fed "
@@ -63,7 +64,7 @@ class VIFPage(StagePageMixin, QWizardPage):
         layout.addWidget(wrapped_label(
             "Default is 10 (a common threshold in ecological modelling). "
             "Lowering to 5 gives a stricter, more decorrelated set. Checking "
-            "'Keep all predictors' bypasses this step entirely — useful if "
+            "'Keep all predictors' bypasses this step entirely, which is useful if "
             "you've already handled multicollinearity yourself, or want every "
             "variable available regardless of overlap."
         ))
@@ -148,7 +149,7 @@ class VIFPage(StagePageMixin, QWizardPage):
 
         if vif_report.skipped:
             self.summary_label.setText(
-                f"Multicollinearity check skipped — all {len(vif_report.retained)} "
+                f"Multicollinearity check skipped. All {len(vif_report.retained)} "
                 f"predictor(s) kept: {', '.join(vif_report.retained) or 'none'}."
             )
         else:

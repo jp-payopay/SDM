@@ -124,7 +124,7 @@ class WelcomePage(QWizardPage):
         steps_layout = QVBoxLayout(steps_box)
         steps_layout.addWidget(wrapped_label(
             "1. Occurrence data 2. Predictor rasters 3. Cleaning\n"
-            "4. Background points 5. Predictor selection (VIF — multicollinearity) "
+            "4. Background points 5. Predictor selection (VIF, multicollinearity) "
             "6. Cross-validation (CV)\n"
             "7. Algorithms 8. Projection stack (optional) "
             "9. Ensemble\n"
