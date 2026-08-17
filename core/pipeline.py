@@ -379,8 +379,8 @@ class Pipeline:
                 ens_binary = apply_threshold(ensemble_raster, ens_thr)
                 suitable_frac = float(np.mean(ens_binary[finite_ens] == 1))
 
-            # Cross-validated ensemble scores, and (biomod2-style) permutation
-            # importance of the ensemble prediction. Only meaningful with 2+
+            # Cross-validated ensemble scores, and permutation importance
+            # of the ensemble prediction. Only meaningful with 2+
             # algorithms; with one the "ensemble" is just that algorithm.
             ens_weights = compute_weights(
                 list(per_algo_raster.keys()), metric_map, self.cfg.ensemble.method
@@ -648,9 +648,24 @@ class Pipeline:
                     "background": {
                         "method": self.cfg.background.method,
                         "n_drawn": int((y == 0).sum()),
-                        "buffer_distance": (
-                            self.cfg.background.buffer_distance
-                            if self.cfg.background.method == "buffered"
+                        "ratio": (
+                            self.cfg.background.ratio
+                            if self.cfg.background.method == "ratio"
+                            else None
+                        ),
+                        "min_distance": (
+                            self.cfg.background.min_distance
+                            if self.cfg.background.method == "disk"
+                            else None
+                        ),
+                        "max_distance": (
+                            self.cfg.background.max_distance
+                            if self.cfg.background.method == "disk"
+                            else None
+                        ),
+                        "sre_quantile": (
+                            self.cfg.background.sre_quantile
+                            if self.cfg.background.method == "sre"
                             else None
                         ),
                     } if self.cfg.data_mode == "presence_only" else None,

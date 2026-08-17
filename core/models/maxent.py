@@ -4,14 +4,12 @@ import numpy as np
 
 from .base import SDMModel
 
-# Sample-size-adaptive feature class selection, exactly matching maxnet's
-# `maxnet.formula(classes="default")` rule (the R reimplementation of Maxent
-# that elapid itself is modeled on) — this is also what dismo::maxent and
-# the original Java Maxent's "auto features" use: for n<80 presence records,
-# the richer product/threshold feature classes are turned off to keep the
-# model from overfitting a small sample; product is re-enabled at n>=80.
-# Threshold is excluded at every tier — Phillips et al. (2017) found it
-# rarely helps and often hurts, so it's no longer part of any "default" tier.
+# Sample-size-adaptive feature class selection, matching the "auto features"
+# rule every MaxEnt implementation shares: for n<80 presence records the
+# richer product and threshold feature classes are turned off to keep the
+# model from overfitting a small sample, and product is re-enabled at n>=80.
+# Threshold is excluded at every tier, since Phillips et al. (2017) found it
+# rarely helps and often hurts, so it is no longer part of any default tier.
 def auto_feature_types(n_presence: int) -> tuple[str, ...]:
     if n_presence < 10:
         return ("linear",)
@@ -24,7 +22,7 @@ def auto_feature_types(n_presence: int) -> tuple[str, ...]:
 
 class MaxEntModel(SDMModel):
     name = "maxent"
-    long_name = "MaxEnt (elapid)"
+    long_name = "MaxEnt"
 
     def __init__(
         self,
@@ -63,8 +61,8 @@ class MaxEntModel(SDMModel):
         return self
 
     def predict_proba(self, X: np.ndarray) -> np.ndarray:
-        # This elapid version fixes the output transform at construction
-        # time (transform="cloglog" above) rather than accepting it here.
+        # The output transform is fixed at construction time
+        # (transform="cloglog" above) rather than accepted here.
         self._check_fitted()
         raw = self._model.predict(X)
         return np.asarray(raw, dtype=np.float64).ravel()

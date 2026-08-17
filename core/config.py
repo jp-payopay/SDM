@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Literal
 
 DataMode = Literal["presence_only", "presence_absence"]
-BackgroundMethod = Literal["random", "buffered"]
+BackgroundMethod = Literal["random", "ratio", "disk", "sre"]
 SplitMethod = Literal["random", "kfold", "spatial_block"]
 BlockShape = Literal["square", "hexagon"]
 EnsembleMethod = Literal["mean", "weighted_auc", "weighted_tss"]
@@ -38,12 +38,43 @@ class CleaningConfig:
 
 @dataclass
 class BackgroundConfig:
+    # How many points to draw, for every method except "ratio".
     count: int = 10_000
     method: BackgroundMethod = "random"
-    # Always real-world meters, regardless of the predictor rasters' CRS.
-    # Converted to the raster's native CRS units (latitude-corrected for
-    # geographic CRSs) in stages.collect_labeled_points_and_extract.
-    buffer_distance: float = 50_000.0
+    # "ratio": points are placed at random, exactly as the "random" method
+    # does, but the count scales with the data instead of being fixed. At 4
+    # per presence, 50 records give 200 pseudo-absences and 300 give 1,200,
+    # which keeps the balance between the two classes steady no matter how
+    # many records a species happens to have.
+    ratio: float = 4.0
+    # "disk": keep only locations whose nearest presence is at least
+    # min_distance and at most max_distance away. Both are always real-world
+    # meters, regardless of the predictor rasters' CRS, and are converted to
+    # the raster's native units (latitude-corrected for geographic CRSs) in
+    # stages.collect_labeled_points_and_extract. max_distance = 0 means no
+    # upper limit.
+    min_distance: float = 0.0
+    max_distance: float = 50_000.0
+    # "sre": fraction trimmed off each end of the presences' values per
+    # predictor before the environmental envelope is drawn, so one outlying
+    # record cannot stretch it over the whole study area.
+    sre_quantile: float = 0.025
+
+    def resolve_count(self, n_presence: int) -> int:
+        """How many background points to draw for this many presences.
+
+        Resolved here rather than at the point of use so the preview page and
+        the pipeline can never disagree about it.
+
+        A fractional multiplier rounds half up, not to even: 1.5 per presence
+        over 35 records gives 53, which is the number a user doing the
+        multiplication in their head will expect. Both values are known to be
+        non-negative (validate() rejects a ratio of zero or less), so adding a
+        half and truncating is enough.
+        """
+        if self.method == "ratio":
+            return max(1, int(self.ratio * n_presence + 0.5))
+        return int(self.count)
 
 
 @dataclass
@@ -93,6 +124,29 @@ class OutputConfig:
     save_models: bool = True
 
 
+def _background_from_dict(sub: dict | None) -> BackgroundConfig:
+    """Build a BackgroundConfig, accepting run_config.json files written
+    before the buffered background became a min/max distance disk.
+
+    Back then the method was called "buffered" and had a single
+    `buffer_distance`, which was the outer radius with no inner one — exactly
+    what max_distance means now, so an old config reruns unchanged.
+    """
+    if not sub:
+        return BackgroundConfig()
+    data = dict(sub)
+    legacy_distance = data.pop("buffer_distance", None)
+    if legacy_distance is not None and "max_distance" not in data:
+        data["max_distance"] = float(legacy_distance)
+    if data.get("method") == "buffered":
+        data["method"] = "disk"
+    # Scaling the count with the presence count was briefly a separate
+    # `count_mode` flag alongside the method; it is now a method of its own.
+    if data.pop("count_mode", None) == "ratio":
+        data["method"] = "ratio"
+    return BackgroundConfig(**data)
+
+
 @dataclass
 class SDMConfig:
     data_mode: DataMode = "presence_only"
@@ -124,7 +178,7 @@ class SDMConfig:
             occurrence=build(OccurrenceConfig, data.get("occurrence")),
             rasters=build(RasterConfig, data.get("rasters")),
             cleaning=build(CleaningConfig, data.get("cleaning")),
-            background=build(BackgroundConfig, data.get("background")),
+            background=_background_from_dict(data.get("background")),
             vif=build(VIFConfig, data.get("vif")),
             split=build(SplitConfig, data.get("split")),
             modeling=build(ModelingConfig, data.get("modeling")),
@@ -146,10 +200,24 @@ class SDMConfig:
             errors.append("At least one predictor raster is required.")
         if self.data_mode == "presence_absence" and not self.occurrence.presence_field:
             errors.append("Presence field is required for presence/absence mode.")
-        if self.background.count < 100:
+        if self.background.method == "ratio":
+            if self.background.ratio <= 0:
+                errors.append("Pseudo-absences per presence must be greater than zero.")
+        elif self.background.count < 100:
             errors.append("Background count should be at least 100.")
-        if self.background.method == "buffered" and self.background.buffer_distance <= 0:
-            errors.append("Buffer distance must be positive for buffered background.")
+        if self.background.method == "disk":
+            if self.background.min_distance < 0 or self.background.max_distance < 0:
+                errors.append("Disk background distances cannot be negative.")
+            elif (
+                self.background.max_distance > 0
+                and self.background.min_distance >= self.background.max_distance
+            ):
+                errors.append(
+                    "Minimum distance must be smaller than maximum distance for the "
+                    "disk background (set maximum to 0 for no upper limit)."
+                )
+        if self.background.method == "sre" and not (0.0 <= self.background.sre_quantile < 0.5):
+            errors.append("SRE quantile must be at least 0 and below 0.5.")
         if self.vif.cutoff <= 1.0:
             errors.append("VIF cutoff must be greater than 1.")
         if self.split.k < 2:

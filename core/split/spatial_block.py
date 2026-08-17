@@ -50,10 +50,10 @@ def spatial_block_folds(
 
     Blocks are assigned to folds in a shuffled round-robin so each fold gets
     a near-equal share of blocks, spatially scattered across the extent
-    (this is the "random" block-to-fold assignment used by e.g. R's blockCV
-    and ENMeval — deliberately not spatially clustered into a handful of
-    mega-regions, since the point is holding out spatially-independent test
-    blocks, not partitioning the map into k contiguous zones).
+    (this is the "random" block-to-fold assignment, deliberately not
+    spatially clustered into a handful of mega-regions, since the point is
+    holding out spatially-independent test blocks rather than partitioning
+    the map into k contiguous zones).
     """
     if block_shape not in BLOCK_SHAPES:
         raise ValueError(f"block_shape must be one of {BLOCK_SHAPES}, got {block_shape!r}")

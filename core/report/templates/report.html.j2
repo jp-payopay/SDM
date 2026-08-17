@@ -207,7 +207,7 @@
 
 {% if background %}
 <h2>5. Background points</h2>
-<p>Method: <b>{{ background.method }}</b>. Drawn: <b>{{ background.n_drawn }}</b>{% if background.buffer_distance %} · buffer: {{ "%.0f"|format(background.buffer_distance) }} m{% endif %}.</p>
+<p>Method: <b>{{ background.method }}</b>. Drawn: <b>{{ background.n_drawn }}</b>{% if background.ratio is not none %} ({{ background.ratio }} per presence){% endif %}{% if background.method == "disk" %} · distance from nearest presence: {{ "%.0f"|format(background.min_distance) }} m to {% if background.max_distance %}{{ "%.0f"|format(background.max_distance) }} m{% else %}no limit{% endif %}{% endif %}{% if background.sre_quantile is not none %} · envelope quantile: {{ background.sre_quantile }}{% endif %}.</p>
 {% endif %}
 
 <h2>6. Cross-validation</h2>

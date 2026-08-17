@@ -6,11 +6,12 @@ from .base import SDMModel
 
 
 class XGBModel(SDMModel):
-    """Defaults match biomod2's own XGBOOST "default" strategy (max.depth=5,
-    eta=0.1, nrounds=512) — biomod2 4.x is the only one of the R SDM
-    packages surveyed (sdm, biomod2, ssdm, flexsdm, dismo) that wraps
-    XGBoost. subsample/colsample_bytree aren't part of that reference
-    default; 0.8/0.8 is standard boosted-tree practice and left unchanged.
+    """max_depth=5, eta=0.1 and 512 rounds are the settings SDM work
+    conventionally reaches for when boosting with XGBoost: deeper, and
+    faster-learning, than the BRT recipe in gbm.py, which is the point of
+    offering both. subsample and colsample_bytree are not part of that
+    reference default; 0.8/0.8 is standard boosted-tree practice and left
+    unchanged.
     """
 
     name = "xgb"

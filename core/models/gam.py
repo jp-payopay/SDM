@@ -6,9 +6,8 @@ from .base import SDMModel
 
 
 class GAMModel(SDMModel):
-    """n_splines=10 already matches mgcv's own basis-specific default `k`
-    for a single-dimension smooth term (the package biomod2 wraps for GAM)
-    — no change needed here."""
+    """n_splines=10 matches the conventional default basis size for a
+    single-dimension smooth term, so no change is needed here."""
 
     name = "gam"
     long_name = "Generalized Additive Model"

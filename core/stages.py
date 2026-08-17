@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import numpy as np
 
-from .background.buffered import sample_buffered
+from .background.disk import sample_disk
 from .background.random import sample_random
+from .background.sre import sample_sre
 from .cleaning.coord_clean import CleaningReport, auto_clean
 from .cleaning.thinning import ThinningReport, thin_to_pixel
 from .config import SDMConfig
@@ -64,19 +65,33 @@ def collect_labeled_points_and_extract(
         )
         pres_x = occ.x[pres_mask]
         pres_y = occ.y[pres_mask]
-        n_bg = int(cfg.background.count)
-        if cfg.background.method == "random":
+        n_bg = cfg.background.resolve_count(len(pres_x))
+        # "ratio" places points exactly as "random" does; the two differ only
+        # in how n_bg above was arrived at.
+        if cfg.background.method in ("random", "ratio"):
             bx, by = sample_random(stack, n_bg, rng=rng)
-        else:
-            # cfg.background.buffer_distance is always real-world meters;
-            # convert to the stack's native CRS units here (pass-through for
-            # projected CRSs, latitude-corrected for geographic ones) so the
-            # buffer is applied correctly regardless of the raster's CRS.
-            buffer_crs_units = distance_to_crs_units(
-                cfg.background.buffer_distance, stack.crs, float(pres_y.mean())
+        elif cfg.background.method == "sre":
+            bx, by = sample_sre(
+                stack, pres_x, pres_y, n_bg,
+                quantile=cfg.background.sre_quantile, rng=rng,
             )
-            bx, by = sample_buffered(
-                stack, pres_x, pres_y, n_bg, buffer_crs_units, rng=rng
+        else:
+            # The disk's distances are always real-world meters; convert to
+            # the stack's native CRS units here (pass-through for projected
+            # CRSs, latitude-corrected for geographic ones) so the ring is
+            # applied correctly regardless of the raster's CRS. A max of 0
+            # means "no upper limit" and must stay 0 through the conversion.
+            lat = float(pres_y.mean())
+            min_crs_units = distance_to_crs_units(
+                cfg.background.min_distance, stack.crs, lat
+            )
+            max_crs_units = (
+                distance_to_crs_units(cfg.background.max_distance, stack.crs, lat)
+                if cfg.background.max_distance > 0
+                else 0.0
+            )
+            bx, by = sample_disk(
+                stack, pres_x, pres_y, n_bg, min_crs_units, max_crs_units, rng=rng
             )
         px = np.concatenate([pres_x, bx])
         py = np.concatenate([pres_y, by])

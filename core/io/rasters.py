@@ -36,75 +36,231 @@ class RasterAlignmentError(ValueError):
     pass
 
 
-def load_stack(paths: list[str | Path]) -> RasterStack:
-    if not paths:
-        raise ValueError("Empty raster paths list.")
-    paths = [Path(p) for p in paths]
-    ref = None
-    ref_path = None
-    names: list[str] = []
-    seen_stems: dict[str, Path] = {}
-    for p in paths:
+# Absolute tolerance for comparing the six affine-transform coefficients of
+# two rasters. Deliberately a single shared constant: the *same* comparison
+# decides both whether load_stack() accepts a set of rasters and whether the
+# UI calls them misaligned, so the two can never disagree.
+GRID_TOL = 1e-6
+
+
+@dataclass
+class RasterProfile:
+    """Grid metadata for a single raster file, read without touching any
+    pixel data. This is what the alignment check compares, and what the
+    wizard shows per layer when a set of rasters doesn't line up.
+    """
+
+    name: str
+    path: str
+    crs: str
+    dtype: str
+    width: int
+    height: int
+    transform: Affine
+    nodata: float | None
+
+    @property
+    def resolution(self) -> tuple[float, float]:
+        return (abs(self.transform.a), abs(self.transform.e))
+
+    @property
+    def bounds(self) -> tuple[float, float, float, float]:
+        left = self.transform.c
+        top = self.transform.f
+        right = left + self.transform.a * self.width
+        bottom = top + self.transform.e * self.height
+        return (min(left, right), min(top, bottom), max(left, right), max(top, bottom))
+
+
+def describe_profiles(paths: list[str | Path]) -> list[RasterProfile]:
+    """Read every raster's grid metadata (header only — no pixels), in the
+    order given. Cheap enough to run before deciding whether a set of
+    rasters can be stacked at all."""
+    profiles: list[RasterProfile] = []
+    for raw in paths:
+        p = Path(raw)
         if not p.exists():
             raise FileNotFoundError(f"Raster not found: {p}")
-        if p.stem in seen_stems:
+        with rasterio.open(p) as src:
+            profiles.append(
+                RasterProfile(
+                    name=p.stem,
+                    path=str(p),
+                    crs=src.crs.to_string() if src.crs else "",
+                    dtype=src.dtypes[0],
+                    width=src.width,
+                    height=src.height,
+                    transform=src.transform,
+                    nodata=src.nodata,
+                )
+            )
+    return profiles
+
+
+def check_unique_stems(paths: list[str | Path]) -> None:
+    """Predictors are matched by filename stem downstream (VIF selection,
+    prediction columns), so two rasters may never share one."""
+    seen: dict[str, Path] = {}
+    for raw in paths:
+        p = Path(raw)
+        if p.stem in seen:
             raise RasterAlignmentError(
-                f"Duplicate predictor name {p.stem!r}: {seen_stems[p.stem]} and {p} "
+                f"Duplicate predictor name {p.stem!r}: {seen[p.stem]} and {p} "
                 "share the same filename stem. Predictors are matched by name "
                 "(VIF selection, prediction columns), so rasters must have unique "
-                "stems — rename one of these files."
+                "stems. Rename one of these files."
             )
-        seen_stems[p.stem] = p
-        with rasterio.open(p) as src:
-            info = {
-                "crs": src.crs.to_string() if src.crs else "",
-                "transform": src.transform,
-                "width": src.width,
-                "height": src.height,
-                "nodata": src.nodata,
-            }
-        if ref is None:
-            ref = info
-            ref_path = p
-        else:
-            _check_aligned(ref, ref_path, info, p)
-        names.append(p.stem)
+        seen[p.stem] = p
+
+
+@dataclass
+class AlignmentIssues:
+    """Which grid properties differ across a set of rasters.
+
+    `crs`, `resolution`, `size`, `origin` and `rotation` are the primitive
+    comparisons that decide whether the rasters can be stacked at all (see
+    `any`). `extent` and `fractional_offset` are derived from them and exist
+    only to describe the problem the way a user thinks about it — "the layers
+    cover different areas", "the layers don't share a pixel grid".
+    """
+
+    crs: bool = False
+    resolution: bool = False
+    size: bool = False
+    origin: bool = False
+    rotation: bool = False
+    extent: bool = False
+    fractional_offset: bool = False
+
+    @property
+    def any(self) -> bool:
+        """True if the rasters cannot be read as one stack. Covers exactly
+        the properties a RasterStack collapses to a single value: one CRS,
+        one width/height, one affine transform."""
+        return self.crs or self.resolution or self.size or self.origin or self.rotation
+
+    @property
+    def labels(self) -> list[str]:
+        """Short user-facing names of what's wrong, for a headline like
+        'These rasters differ in CRS and resolution.'"""
+        out: list[str] = []
+        if self.crs:
+            out.append("CRS")
+        if self.resolution:
+            out.append("resolution")
+        if self.extent or self.size or self.origin:
+            out.append("extent")
+        if self.fractional_offset or self.rotation:
+            out.append("pixel alignment")
+        if not out and self.any:
+            # Defensive: never claim a problem without naming one.
+            out.append("grid transform")
+        return out
+
+
+def _close(a: float, b: float, tol: float = GRID_TOL) -> bool:
+    return abs(a - b) < tol
+
+
+def diagnose_alignment(profiles: list[RasterProfile]) -> AlignmentIssues:
+    """Compare every raster against the first one and report which grid
+    properties differ. Unlike raising on the first offender, this looks at
+    the whole set so the wizard can show one complete table."""
+    issues = AlignmentIssues()
+    if len(profiles) < 2:
+        return issues
+    ref = profiles[0]
+    ref_res_x, ref_res_y = ref.resolution
+    for other in profiles[1:]:
+        if ref.crs != other.crs:
+            issues.crs = True
+        if (ref.width, ref.height) != (other.width, other.height):
+            issues.size = True
+        if not (
+            _close(ref.transform.a, other.transform.a)
+            and _close(ref.transform.e, other.transform.e)
+        ):
+            issues.resolution = True
+        if not (
+            _close(ref.transform.c, other.transform.c)
+            and _close(ref.transform.f, other.transform.f)
+        ):
+            issues.origin = True
+        if not (
+            _close(ref.transform.b, other.transform.b)
+            and _close(ref.transform.d, other.transform.d)
+        ):
+            issues.rotation = True
+        if any(not _close(x, y) for x, y in zip(ref.bounds, other.bounds)):
+            issues.extent = True
+        # A whole-pixel shift is only an extent difference — the two rasters
+        # still share a grid and could be stacked by clipping. A fractional
+        # shift means the pixel centres genuinely don't line up, which can
+        # only be fixed by resampling.
+        for ref_o, other_o, res in (
+            (ref.transform.c, other.transform.c, ref_res_x),
+            (ref.transform.f, other.transform.f, ref_res_y),
+        ):
+            if res <= 0:
+                continue
+            steps = (other_o - ref_o) / res
+            if abs(steps - round(steps)) > 1e-6:
+                issues.fractional_offset = True
+    return issues
+
+
+def _fmt_bounds(bounds: tuple[float, float, float, float]) -> str:
+    minx, miny, maxx, maxy = bounds
+    return f"x {minx:.6g}…{maxx:.6g}, y {miny:.6g}…{maxy:.6g}"
+
+
+def format_alignment_error(
+    profiles: list[RasterProfile], issues: AlignmentIssues
+) -> str:
+    """A per-layer breakdown of a failed alignment check, used both as the
+    RasterAlignmentError message and as the headline above the wizard's
+    layer-properties table."""
+    lines = [
+        "Rasters must share CRS, extent, resolution, and pixel grid. "
+        f"These differ in: {', '.join(issues.labels)}."
+    ]
+    for i, p in enumerate(profiles):
+        res_x, res_y = p.resolution
+        lines.append(
+            f"  {p.name}{' (reference)' if i == 0 else ''}: "
+            f"{p.dtype}, CRS {p.crs or 'none'}, "
+            f"{p.width}×{p.height} px, res {res_x:.6g}×{res_y:.6g}, "
+            f"{_fmt_bounds(p.bounds)}"
+        )
+    return "\n".join(lines)
+
+
+def build_stack(profiles: list[RasterProfile]) -> RasterStack:
+    """Assemble a RasterStack from already-read profiles, taking the shared
+    grid from the first one. Callers must have run `diagnose_alignment`
+    first — this does no checking of its own."""
+    ref = profiles[0]
     return RasterStack(
-        names=names,
-        paths=[str(p) for p in paths],
-        crs=ref["crs"],
-        transform=ref["transform"],
-        width=ref["width"],
-        height=ref["height"],
-        nodata=ref["nodata"] if ref["nodata"] is not None else np.nan,
-        shape=(ref["height"], ref["width"]),
+        names=[p.name for p in profiles],
+        paths=[p.path for p in profiles],
+        crs=ref.crs,
+        transform=ref.transform,
+        width=ref.width,
+        height=ref.height,
+        nodata=ref.nodata if ref.nodata is not None else np.nan,
+        shape=(ref.height, ref.width),
     )
 
 
-def _check_aligned(ref: dict, ref_path: Path, other: dict, other_path: Path) -> None:
-    problems: list[str] = []
-    if ref["crs"] != other["crs"]:
-        problems.append(f"CRS mismatch: {ref['crs']!r} vs {other['crs']!r}")
-    if (ref["width"], ref["height"]) != (other["width"], other["height"]):
-        problems.append(
-            f"Shape mismatch: {ref['width']}x{ref['height']} vs "
-            f"{other['width']}x{other['height']}"
-        )
-    if not _transforms_equal(ref["transform"], other["transform"]):
-        problems.append(
-            f"Transform mismatch: {tuple(ref['transform'])} vs {tuple(other['transform'])}"
-        )
-    if problems:
-        raise RasterAlignmentError(
-            f"Rasters must share CRS, shape, and transform.\n"
-            f"Reference: {ref_path}\n"
-            f"Offender:  {other_path}\n"
-            + "\n".join(f"  - {p}" for p in problems)
-        )
-
-
-def _transforms_equal(a: Affine, b: Affine, tol: float = 1e-6) -> bool:
-    return all(abs(x - y) < tol for x, y in zip(a[:6], b[:6]))
+def load_stack(paths: list[str | Path]) -> RasterStack:
+    if not paths:
+        raise ValueError("Empty raster paths list.")
+    check_unique_stems(paths)
+    profiles = describe_profiles(paths)
+    issues = diagnose_alignment(profiles)
+    if issues.any:
+        raise RasterAlignmentError(format_alignment_error(profiles, issues))
+    return build_stack(profiles)
 
 
 def extract_values(stack: RasterStack, x: np.ndarray, y: np.ndarray) -> np.ndarray:

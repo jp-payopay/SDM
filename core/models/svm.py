@@ -9,10 +9,10 @@ from .base import SDMModel
 
 
 class SVMModel(SDMModel):
-    """cost=1, RBF kernel matches e1071::svm()'s own defaults (what
-    biomod2/sdm wrap for SVM); gamma="scale" is sklearn's own heuristic
-    (1 / (n_features * X.var())), the same "one over feature count" spirit
-    as e1071's default gamma — no change needed here."""
+    """C=1 with an RBF kernel is the conventional starting point for a
+    classification SVM. gamma="scale" is sklearn's own heuristic,
+    1 / (n_features * X.var()), which follows the same "one over feature
+    count" spirit as the classic default. No change is needed here."""
 
     name = "svm"
     long_name = "Support Vector Machine"

@@ -7,9 +7,9 @@ from .base import SDMModel
 
 
 class RFModel(SDMModel):
-    """Defaults already match R's randomForest package (what biomod2/sdm/
-    ssdm/dismo all wrap for RF): ntree=500, mtry=sqrt(p) for classification,
-    and nodesize=1 (== min_samples_leaf=1) — no change needed here."""
+    """Defaults already match the long-standing reference settings for
+    classification forests: 500 trees, sqrt(n_features) candidates per split,
+    and a minimum leaf size of 1. No change is needed here."""
 
     name = "rf"
     long_name = "Random Forest"

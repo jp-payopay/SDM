@@ -9,10 +9,10 @@ def is_geographic_crs(crs: str) -> bool:
     than a projected linear unit (e.g. metres)."""
     if not crs:
         raise ValueError(
-            "Predictor rasters have no embedded CRS, so buffer/block-size "
-            "distances can't be converted to real-world units. Reproject "
-            "the predictor rasters to a CRS with defined units before using "
-            "a buffered background or a manual (non-auto) spatial block size."
+            "Predictor rasters have no embedded CRS, so distances can't be "
+            "converted to real-world units. Reproject the predictor rasters "
+            "to a CRS with defined units before using a disk background or a "
+            "manual (non-auto) spatial block size."
         )
     return CRS.from_string(crs).is_geographic
 
@@ -24,7 +24,7 @@ def meters_per_degree_latitude(latitude_deg: float) -> float:
     shrink strongly toward the poles — this latitude-based scale is used as
     the single isotropic conversion factor for buffer/block-size distances,
     which are themselves already applied isotropically (the same value in
-    both x and y) by the buffered-background and spatial-block code.
+    both x and y) by the disk-background and spatial-block code.
     """
     lat = np.radians(latitude_deg)
     return (

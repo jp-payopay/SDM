@@ -9,15 +9,14 @@ from .base import SDMModel
 
 
 class MLPModel(SDMModel):
-    """biomod2's ANN wraps nnet — a single hidden layer — and picks its
-    size/decay via internal 5-fold CV over size ∈ {2,4,6,8} and
-    decay ∈ {0.001, 0.01, 0.05, 0.1} (BIOMOD_tuning defaults). We don't run
-    that inner CV loop here, so hidden_layer_sizes/alpha are fixed at the
-    upper-middle of those same grids (a single 8-unit layer, decay 0.01)
-    rather than the much larger, deeper (32, 16) network used previously —
-    ecological presence/background datasets are usually far too small to
-    support that much network capacity without overfitting. max_iter=500
-    matches BIOMOD_tuning's maxit.ANN exactly.
+    """The conventional neural network for this kind of data is a single
+    hidden layer, with its size and weight decay picked by an inner CV loop
+    over roughly size in {2,4,6,8} and decay in {0.001, 0.01, 0.05, 0.1}.
+    That inner loop is not run here, so hidden_layer_sizes and alpha are
+    fixed at the upper-middle of those same ranges: a single 8-unit layer
+    with decay 0.01, rather than the much larger, deeper (32, 16) network
+    used previously. Ecological presence/background datasets are usually far
+    too small to support that much network capacity without overfitting.
     """
 
     name = "mlp"

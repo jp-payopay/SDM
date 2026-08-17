@@ -10,10 +10,9 @@ from .base import SDMModel
 
 def _add_quadratic_terms(X: np.ndarray) -> np.ndarray:
     """Append each (already-scaled) predictor's own square, with no
-    cross-variable interaction terms — the same feature set biomod2's GLM
-    default (type='quadratic', interaction.level=0) fits, the standard
-    "GLM" configuration in the SDM literature since Guisan & Zimmermann
-    (2000) / Austin (2002). Squaring after scaling (not before) keeps the
+    cross-variable interaction terms. This is the standard "GLM"
+    configuration in the SDM literature since Guisan & Zimmermann (2000) /
+    Austin (2002). Squaring after scaling (not before) keeps the
     squared terms on a comparable numeric scale regardless of each
     predictor's original units.
     """
@@ -29,9 +28,9 @@ class LRModel(SDMModel):
         self._pipe: Pipeline | None = None
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> "LRModel":
-        # biomod2's default GLM uses stepwise AIC term selection rather than
-        # a shrinkage penalty; sklearn has no direct stepwise-AIC equivalent,
-        # so L2 regularization (C) plays that same "keep the model from
+        # The classic GLM recipe selects terms by stepwise AIC rather than
+        # shrinking them; sklearn has no direct stepwise-AIC equivalent, so
+        # L2 regularization (C) plays that same "keep the model from
         # overfitting the added quadratic terms" role here instead.
         self._pipe = Pipeline([
             ("scaler", StandardScaler()),

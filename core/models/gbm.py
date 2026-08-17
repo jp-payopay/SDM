@@ -9,15 +9,15 @@ from .base import SDMModel
 class GBMModel(SDMModel):
     """Boosted regression trees (BRT), the term this algorithm goes by in
     the SDM literature (Elith, Leathwick & Hastie 2008). Defaults follow
-    dismo::gbm.step's own function defaults (learning_rate=0.01,
-    subsample/bag.fraction=0.75), with n_estimators raised to 1000 to
-    compensate for the lower learning rate (gbm.step's guidance is to aim
-    for at least ~1000 trees; it finds the tree count itself via internal
-    CV, which we don't replicate here). tree depth is kept at a fixed 3 —
-    within the 2-5 range Elith et al. recommend for typical ecological
-    data — rather than gbm.step's own tree.complexity=1 default, since
-    without adaptive tree-count selection a depth-1 (stump) ensemble would
-    need many more trees than we fit to reach comparable complexity.
+    the usual BRT recipe for ecological data: a slow learning rate of 0.01
+    with bagging at 0.75, and n_estimators raised to 1000 to compensate for
+    that low rate, since the standard guidance is to aim for at least ~1000
+    trees. That guidance normally comes with adaptive tree-count selection
+    by internal CV, which is not replicated here. Tree depth is kept at a
+    fixed 3, within the 2-5 range Elith et al. recommend for typical
+    ecological data, rather than the depth-1 stumps some implementations
+    default to: without adaptive tree-count selection, stumps would need far
+    more trees than we fit to reach comparable complexity.
     """
 
     name = "gbm"

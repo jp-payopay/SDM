@@ -73,8 +73,8 @@ def ensemble_permutation_importance(
     n_repeats: int = 3,
     rng: np.random.Generator | None = None,
 ) -> list[dict[str, float]]:
-    """Permutation importance of the *ensemble* prediction (biomod2-style):
-    permute one predictor at a time, recompute the full weighted ensemble
+    """Permutation importance of the *ensemble* prediction: permute one
+    predictor at a time, recompute the full weighted ensemble
     prediction from every fitted model, and measure the drop in ensemble AUC.
 
     The ensemble prediction is the same object the raster ensemble represents:
