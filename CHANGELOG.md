@@ -1,10 +1,5 @@
 # Changelog
 
-All notable changes to this plugin are recorded here. Versions follow
-[semantic versioning](https://semver.org/): the minor number moves for new
-features that keep existing runs working, the major number only for changes
-that would break them.
-
 ## [1.2.1] - 2026-09-21
 
 ### Added
