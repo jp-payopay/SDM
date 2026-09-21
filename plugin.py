@@ -13,6 +13,34 @@ ACTION_LABEL = "Run SDM…"
 _PKG_MAP = {"sklearn": "scikit-learn", "pygam": "pyGAM"}
 
 
+def _set_plugin_submenu_icon(iface, menu_label: str, icon: QIcon) -> None:
+    """Give the `Plugins -> SDM` submenu itself the plugin's icon.
+
+    addPluginToMenu() puts our icon on the action it adds — the `Run SDM...`
+    item *inside* the submenu — but the submenu holding it is built by QGIS
+    (QgisApp::getPluginMenu), which constructs a bare QMenu and never sets an
+    icon on it. The result is an entry that reads as plain text in the Plugins
+    menu, next to plugins that build their own submenu and do set one. Qt
+    stores a menu's icon on its menuAction(), so this is the icon the parent
+    Plugins menu draws next to the submenu's name.
+
+    The submenu has to be looked up rather than kept from a constructor: QGIS
+    owns it, reuses an existing one of the same name, and hands back nothing.
+    Ampersands (the keyboard-accelerator marker) are ignored when matching,
+    since QGIS strips them from the menu title on macOS and keeps them
+    elsewhere.
+    """
+    plugin_menu = getattr(iface, "pluginMenu", None)
+    if icon.isNull() or plugin_menu is None:
+        return
+    wanted = menu_label.replace("&", "")
+    for action in plugin_menu().actions():
+        submenu = action.menu()
+        if submenu is not None and action.text().replace("&", "") == wanted:
+            submenu.setIcon(icon)
+            return
+
+
 def _python_executable() -> str:
     """sys.executable inside QGIS's embedded interpreter is the QGIS binary
     itself (qgis-bin.exe on the Windows standalone installer, confirmed by
@@ -51,6 +79,7 @@ class SDMWizardPlugin:
         # Conventional Plugins-menu entry (kept for discoverability alongside
         # the plugin manager's own listing).
         self.iface.addPluginToMenu(MENU_LABEL, self.action)
+        _set_plugin_submenu_icon(self.iface, MENU_LABEL, icon)
 
         # Dedicated named toolbar, instead of the generic Plugins toolbar
         # icon, so SDM isn't shown twice on two different toolbars.
