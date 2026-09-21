@@ -68,7 +68,7 @@ Use this to run the code as it stands here rather than the last published releas
 
 3. Restart QGIS, then enable **SDM** in *Plugins → Manage and Install Plugins…*.
 
-With a symlink, a `git pull` updates the installed plugin in place. To pick up edits without restarting QGIS, install the **Plugin Reloader** plugin and point it at `sdm_plugin`.
+   With a symlink, a `git pull` updates the installed plugin in place. To pick up edits without restarting QGIS, install the **Plugin Reloader** plugin and point it at `sdm_plugin`.
 
 ### Python dependencies (either option)
 
