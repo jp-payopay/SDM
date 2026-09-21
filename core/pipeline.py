@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import time
 import traceback
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -10,12 +11,17 @@ from pathlib import Path
 import numpy as np
 
 from .config import SDMConfig
-from .evaluation.metrics import EvaluationResult, evaluate
+from .evaluation.metrics import EvaluationResult, FoldEvaluation, evaluate, evaluate_fold
 from .evaluation.threshold import apply_threshold, apply_threshold_masked, maxtss_threshold
 from .interpret import build_interpretation
 from .io.occurrences import load_occurrences
 from .io.outputs import save_json, save_model, write_raster
 from .io.rasters import RasterStack, load_stack
+from .io.tables import (
+    write_importance_tables,
+    write_metrics_tables,
+    write_response_curve_tables,
+)
 from .models.config_export import build_model_config
 from .models.registry import algorithm_long_name, build_model
 from .prediction.ensemble import (
@@ -59,6 +65,12 @@ class ReplicateResult:
     y_true: np.ndarray | None = None
     y_score: np.ndarray | None = None
     model: object | None = None
+    # Each fold scored on its own held-out points, and the 1-based fold number
+    # of every entry in y_true/y_score (which are concatenated in fold order).
+    # The fold numbers let the ensemble be scored fold by fold too, since
+    # within a replicate every algorithm sees the same folds.
+    fold_metrics: list[FoldEvaluation] = field(default_factory=list)
+    fold_index: np.ndarray | None = None
 
 
 @dataclass
@@ -227,8 +239,14 @@ class Pipeline:
         metrics_summary: list[dict] = []
         output_files: list[str] = []
         curves_by_algo: dict[str, list[dict[str, tuple[np.ndarray, np.ndarray]]]] = {}
+        importance_by_algo: dict[str, list[dict[str, float]]] = {}
         map_files: dict[str, dict[str, str]] = {}
         ensemble_rep_metrics: list[tuple[int, EvaluationResult]] = []
+        ensemble_fold_metrics: list[tuple[int, FoldEvaluation]] = []
+        ensemble_importance: list[dict[str, float]] | None = None
+        # The per-algorithm metric the ensemble weights itself by — captured
+        # here so the CSV exports can reproduce the ensemble response curve.
+        ensemble_metric_map: dict[str, float] | None = None
         ensemble_importance_name: str | None = None
         uncertainty_hi_frac: float | None = None
         extrap_frac: float | None = None
@@ -280,6 +298,7 @@ class Pipeline:
             map_files[algo] = {"continuous": cont_map.name, "binary": bin_map.name}
 
             curves_by_algo[algo] = [r.curves for r in reps]
+            importance_by_algo[algo] = [r.importances for r in reps]
 
             metrics_summary.append({
                 "algorithm": algorithm_long_name(algo),
@@ -311,6 +330,7 @@ class Pipeline:
         if per_algo_raster:
             self._progress("ensemble", 0.5, "Building ensemble")
             metric_map = per_algo_auc if self.cfg.ensemble.method == "weighted_auc" else per_algo_tss
+            ensemble_metric_map = metric_map
             ensemble_raster, ensemble_sd = ensemble_predictions(
                 per_algo_raster,
                 metric_map,
@@ -389,6 +409,9 @@ class Pipeline:
                 ensemble_rep_metrics = self._ensemble_cv_metrics(
                     replicate_results, list(per_algo_raster.keys()), ens_weights, n_rep
                 )
+                ensemble_fold_metrics = self._ensemble_cv_fold_metrics(
+                    replicate_results, list(per_algo_raster.keys()), ens_weights, n_rep
+                )
                 if ensemble_rep_metrics:
                     e_auc = [m.auc for _, m in ensemble_rep_metrics if np.isfinite(m.auc)]
                     e_tss = [m.tss for _, m in ensemble_rep_metrics if np.isfinite(m.tss)]
@@ -417,6 +440,7 @@ class Pipeline:
                         models_by_algo, ens_weights, X_kept, y, kept_names,
                         n_repeats=3, rng=np.random.default_rng(self.cfg.random_seed + 777),
                     )
+                    ensemble_importance = ens_imp
                     plot_variable_importance(
                         algorithm="Ensemble",
                         per_replicate_importance=ens_imp,
@@ -540,6 +564,41 @@ class Pipeline:
         ]
         save_json(out_dir / "metrics_per_replicate.json", per_replicate_json)
         output_files.append(str(out_dir / "metrics_per_replicate.json"))
+
+        # Tidy CSVs of everything the report and the figures show, for
+        # re-analysis outside the plugin. Written last so they cover the
+        # ensemble too, and never allowed to sink a finished run: a failure
+        # here costs the tables, not the rasters and the report.
+        self._progress("report", 0.2, "Writing CSV tables")
+        try:
+            csv_files = write_metrics_tables(
+                out_dir,
+                replicate_results=replicate_results,
+                ensemble_replicates=ensemble_rep_metrics,
+                ensemble_folds=ensemble_fold_metrics,
+                metrics_summary=metrics_summary,
+                label_of=algorithm_long_name,
+            )
+            csv_files += write_response_curve_tables(
+                out_dir,
+                feature_names=kept_names,
+                curves_by_algo=curves_by_algo,
+                per_algo_metric=ensemble_metric_map,
+                ensemble_method=self.cfg.ensemble.method,
+                label_of=algorithm_long_name,
+                # Mirrors the condition the ensemble curve is *plotted* under,
+                # so the summary table and the figures cover the same series.
+                write_ensemble=bool(per_algo_raster),
+            )
+            csv_files += write_importance_tables(
+                out_dir,
+                importance_by_algo=importance_by_algo,
+                ensemble_importance=ensemble_importance,
+                label_of=algorithm_long_name,
+            )
+            output_files += [str(f) for f in csv_files]
+        except Exception as exc:  # pragma: no cover - defensive
+            failed.append(f"CSV tables: {exc}")
 
         # Measured here (rather than after report rendering) so the report
         # itself can display the same number the caller ends up with on
@@ -697,6 +756,47 @@ class Pipeline:
 
     # ----- helpers -----
 
+    def _ensemble_replicate_scores(
+        self,
+        replicate_results: list[ReplicateResult],
+        algos: list[str],
+        weights: dict[str, float],
+        rep_i: int,
+    ) -> tuple[ReplicateResult, np.ndarray] | None:
+        """Combine one replicate's pooled held-out predictions into the
+        ensemble's. Within a replicate all algorithms share the same folds, so
+        their pooled predictions are aligned element for element and can be
+        combined with the ensemble weights directly.
+
+        Returns the ensemble scores together with one contributing replicate
+        result, which carries the y_true and fold layout they all share, or
+        None if no algorithm produced predictions for this replicate.
+        """
+        scores: dict[str, np.ndarray] = {}
+        ref: ReplicateResult | None = None
+        for algo in algos:
+            r = next(
+                (rr for rr in replicate_results
+                 if rr.algorithm == algo and rr.replicate == rep_i
+                 and rr.error is None and rr.y_score is not None),
+                None,
+            )
+            if r is None:
+                continue
+            scores[algo] = np.asarray(r.y_score, dtype=float)
+            ref = r
+        if not scores or ref is None or ref.y_true is None:
+            return None
+        w = {a: max(float(weights.get(a, 0.0)), 0.0) for a in scores}
+        w_sum = sum(w.values())
+        if w_sum <= 0:
+            w = {a: 1.0 for a in scores}
+            w_sum = float(len(scores))
+        ens = np.zeros(len(ref.y_true), dtype=float)
+        for a, s in scores.items():
+            ens += (w[a] / w_sum) * s
+        return ref, ens
+
     def _ensemble_cv_metrics(
         self,
         replicate_results: list[ReplicateResult],
@@ -704,36 +804,50 @@ class Pipeline:
         weights: dict[str, float],
         n_rep: int,
     ) -> list[tuple[int, EvaluationResult]]:
-        """Cross-validated ensemble scores per replicate. Within a replicate all
-        algorithms share the same folds, so their pooled held-out predictions
-        are aligned and can be combined with the ensemble weights and evaluated.
-        """
+        """Cross-validated ensemble scores per replicate."""
         out: list[tuple[int, EvaluationResult]] = []
         for rep_i in range(n_rep):
-            scores: dict[str, np.ndarray] = {}
-            y_true_ref: np.ndarray | None = None
-            for algo in algos:
-                r = next(
-                    (rr for rr in replicate_results
-                     if rr.algorithm == algo and rr.replicate == rep_i
-                     and rr.error is None and rr.y_score is not None),
-                    None,
-                )
-                if r is None:
-                    continue
-                scores[algo] = np.asarray(r.y_score, dtype=float)
-                y_true_ref = r.y_true
-            if not scores or y_true_ref is None:
+            combined = self._ensemble_replicate_scores(
+                replicate_results, algos, weights, rep_i
+            )
+            if combined is None:
                 continue
-            w = {a: max(float(weights.get(a, 0.0)), 0.0) for a in scores}
-            w_sum = sum(w.values())
-            if w_sum <= 0:
-                w = {a: 1.0 for a in scores}
-                w_sum = float(len(scores))
-            ens = np.zeros(len(y_true_ref), dtype=float)
-            for a, s in scores.items():
-                ens += (w[a] / w_sum) * s
-            out.append((rep_i, evaluate(y_true_ref, ens)))
+            ref, ens = combined
+            out.append((rep_i, evaluate(ref.y_true, ens)))
+        return out
+
+    def _ensemble_cv_fold_metrics(
+        self,
+        replicate_results: list[ReplicateResult],
+        algos: list[str],
+        weights: dict[str, float],
+        n_rep: int,
+    ) -> list[tuple[int, FoldEvaluation]]:
+        """The same cross-validated ensemble, scored fold by fold rather than
+        on each replicate's pooled predictions. Fold sizes come from any
+        contributing algorithm, since within a replicate the folds are shared.
+        """
+        out: list[tuple[int, FoldEvaluation]] = []
+        for rep_i in range(n_rep):
+            combined = self._ensemble_replicate_scores(
+                replicate_results, algos, weights, rep_i
+            )
+            if combined is None:
+                continue
+            ref, ens = combined
+            if ref.fold_index is None:
+                continue
+            for fold in ref.fold_metrics:
+                in_fold = ref.fold_index == fold.fold
+                if not in_fold.any():
+                    continue
+                out.append((
+                    rep_i,
+                    evaluate_fold(
+                        fold.fold, ref.y_true[in_fold], ens[in_fold],
+                        n_train=fold.n_train, n_blocks=fold.n_blocks,
+                    ),
+                ))
         return out
 
     def _run_one(
@@ -763,20 +877,43 @@ class Pipeline:
         if _plan is not None and self._captured_split_plan is None:
             self._captured_split_plan = _plan
 
-        # Pool held-out predictions across folds
+        # Under spatial-block CV a fold is a set of whole blocks; count them so
+        # the per-fold table can say how much of the map each score covers. The
+        # fold's own id is read off any of its held-out points rather than from
+        # its position in `folds`, because spatial_block_folds drops folds that
+        # would leave an empty train or test set, which shifts the positions.
+        blocks_per_fold = Counter(_plan.fold_of_block.values()) if _plan is not None else None
+
+        # Pool held-out predictions across folds, scoring each fold on its own
+        # held-out points along the way.
         algo_overrides = self.cfg.modeling.hyperparameters.get(algo, {})
         y_true_pool: list[np.ndarray] = []
         y_score_pool: list[np.ndarray] = []
-        for train_idx, test_idx in folds:
+        fold_index_pool: list[np.ndarray] = []
+        fold_metrics: list[FoldEvaluation] = []
+        for fold_i, (train_idx, test_idx) in enumerate(folds, start=1):
             model = build_model(
                 algo, random_state=self.cfg.random_seed + replicate * 17, **algo_overrides
             )
             model.set_feature_names(kept_names)
             model.fit(X_kept[train_idx], y[train_idx])
-            y_true_pool.append(y[test_idx])
-            y_score_pool.append(model.predict_proba(X_kept[test_idx]))
+            fold_true = y[test_idx]
+            fold_score = model.predict_proba(X_kept[test_idx])
+            y_true_pool.append(fold_true)
+            y_score_pool.append(fold_score)
+            fold_index_pool.append(np.full(len(test_idx), fold_i, dtype=int))
+            n_blocks = None
+            if blocks_per_fold is not None and _fold_id is not None and len(test_idx):
+                n_blocks = blocks_per_fold.get(int(_fold_id[test_idx[0]]))
+            fold_metrics.append(
+                evaluate_fold(
+                    fold_i, fold_true, fold_score,
+                    n_train=len(train_idx), n_blocks=n_blocks,
+                )
+            )
         y_true = np.concatenate(y_true_pool)
         y_score = np.concatenate(y_score_pool)
+        fold_index = np.concatenate(fold_index_pool)
         metrics = evaluate(y_true, y_score)
         threshold = maxtss_threshold(y_true, y_score)
 
@@ -812,6 +949,8 @@ class Pipeline:
             y_true=y_true,
             y_score=y_score,
             model=final,
+            fold_metrics=fold_metrics,
+            fold_index=fold_index,
         )
 
     def _progress(self, stage: str, fraction: float, message: str) -> None:

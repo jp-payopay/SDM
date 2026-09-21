@@ -226,6 +226,7 @@
   </tr>
   {% endfor %}
 </table>
+<p style="font-size: 0.9em; color: var(--moss);">This table is also written as <code>metrics_summary.csv</code>, with the scores behind it in <code>metrics_detail.csv</code> — one row per algorithm and replicate, plus a row for each individual CV fold, told apart by that file's <code>level</code> column.</p>
 <p><small>Random Forest fits in parallel (<code>n_jobs=-1</code>), so rerunning this
 report's <code>run_config.json</code> can differ from these numbers at the
 floating-point level for RF — usually invisible, but the Boyce (CBI) column's
@@ -256,7 +257,7 @@ AUC and TSS are unaffected.</small></p>
 {% endif %}
 
 <h2>10. Response curves</h2>
-<p style="font-size: 0.9em; color: var(--moss);">The <b>Ensemble</b> curve (if shown first below) is each algorithm's mean response blended with the same weights used for the raster ensemble. The bold black line is what the ensemble prediction actually reflects at that predictor's values.</p>
+<p style="font-size: 0.9em; color: var(--moss);">The <b>Ensemble</b> curve (if shown first below) is each algorithm's mean response blended with the same weights used for the raster ensemble. The bold black line is what the ensemble prediction actually reflects at that predictor's values. The plotted values are in <code>response_curves_summary.csv</code>, and every individual replicate's curve in <code>response_curves.csv</code>, for redrawing these elsewhere.</p>
 <div class="card-grid">
 {% for algo, files in response_curves.items() %}
 <div class="card">
@@ -267,6 +268,7 @@ AUC and TSS are unaffected.</small></p>
 </div>
 
 <h2>11. Variable importance</h2>
+<p style="font-size: 0.9em; color: var(--moss);">Bars are the mean drop in AUC when that predictor is shuffled, with SD across replicates. The plotted values are in <code>variable_importance_summary.csv</code>, and the per-replicate scores in <code>variable_importance.csv</code>.</p>
 {% for algo, f in variable_importance.items() %}
 <div class="fig"><img src="{{ f }}"><div class="caption">{{ algo }}</div></div>
 {% endfor %}

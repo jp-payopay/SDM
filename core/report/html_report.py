@@ -4,6 +4,8 @@ import json
 from datetime import datetime
 from pathlib import Path
 
+from ..config import SDM_VERSION
+
 
 def render_report(
     out_path: str | Path,
@@ -28,7 +30,7 @@ def render_report(
 
     ctx = dict(context)
     ctx.setdefault("generated_at", datetime.now().isoformat(timespec="seconds"))
-    ctx.setdefault("plugin_version", "1.0.1")
+    ctx.setdefault("plugin_version", SDM_VERSION)
     if "config_json" not in ctx and "config_dict" in ctx:
         ctx["config_json"] = json.dumps(ctx["config_dict"], indent=2)
 

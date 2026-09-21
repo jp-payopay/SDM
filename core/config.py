@@ -5,6 +5,13 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Literal
 
+# Single source of truth for the plugin version on the Python side: the
+# config default, the from_dict fallback and the HTML report footer all read
+# it from here. metadata.txt carries its own copy because QGIS parses that
+# file directly and cannot import Python; scripts/build_zip.py refuses to
+# build if the two disagree.
+SDM_VERSION = "1.2.1"
+
 DataMode = Literal["presence_only", "presence_absence"]
 BackgroundMethod = Literal["random", "ratio", "disk", "sre"]
 SplitMethod = Literal["random", "kfold", "spatial_block"]
@@ -160,7 +167,7 @@ class SDMConfig:
     ensemble: EnsembleConfig = field(default_factory=EnsembleConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
     random_seed: int = 42
-    version: str = "1.0.1"
+    version: str = SDM_VERSION
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -185,7 +192,7 @@ class SDMConfig:
             ensemble=build(EnsembleConfig, data.get("ensemble")),
             output=build(OutputConfig, data.get("output")),
             random_seed=data.get("random_seed", 42),
-            version=data.get("version", "1.0.1"),
+            version=data.get("version", SDM_VERSION),
         )
 
     @classmethod

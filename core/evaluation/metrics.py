@@ -17,6 +17,65 @@ class EvaluationResult:
         return {"auc": self.auc, "tss": self.tss, "boyce": self.boyce, "threshold": self.threshold}
 
 
+@dataclass
+class FoldEvaluation:
+    """One cross-validation fold's own held-out scores, plus how much data it
+    was scored on.
+
+    The headline metrics a run reports are computed on held-out predictions
+    *pooled* across folds (one score per replicate). These per-fold results are
+    the same evaluation applied fold by fold, which is what shows whether a
+    replicate's pooled score rests on folds that agree or on one good fold and
+    one bad one — the distinction that matters most under spatial-block CV,
+    where each fold is a different region.
+
+    `fold` is 1-based. `n_background_test` counts held-out background points in
+    presence-only mode and true absences in presence-absence mode.
+    `n_blocks` is the number of spatial blocks making up the fold, and is None
+    for the non-spatial split methods, which have no blocks.
+    """
+
+    fold: int
+    n_train: int
+    n_test: int
+    n_presence_test: int
+    n_background_test: int
+    metrics: EvaluationResult
+    n_blocks: int | None = None
+
+    def as_dict(self) -> dict:
+        return {
+            "fold": self.fold,
+            "n_train": self.n_train,
+            "n_test": self.n_test,
+            "n_presence_test": self.n_presence_test,
+            "n_background_test": self.n_background_test,
+            "n_blocks": self.n_blocks,
+            **self.metrics.as_dict(),
+        }
+
+
+def evaluate_fold(
+    fold: int,
+    y_true: np.ndarray,
+    y_score: np.ndarray,
+    *,
+    n_train: int,
+    n_blocks: int | None = None,
+) -> FoldEvaluation:
+    """Score one fold's held-out predictions and record its size."""
+    y_true = np.asarray(y_true).astype(int).ravel()
+    return FoldEvaluation(
+        fold=fold,
+        n_train=int(n_train),
+        n_test=int(y_true.size),
+        n_presence_test=int((y_true == 1).sum()),
+        n_background_test=int((y_true == 0).sum()),
+        metrics=evaluate(y_true, y_score),
+        n_blocks=n_blocks,
+    )
+
+
 def evaluate(y_true: np.ndarray, y_score: np.ndarray) -> EvaluationResult:
     y_true = np.asarray(y_true).astype(int).ravel()
     y_score = np.asarray(y_score).astype(float).ravel()
